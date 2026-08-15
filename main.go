@@ -24,6 +24,13 @@ func main() {
 		return
 	}
 
+	// parse guild ID
+	guildID := os.Getenv("DISCORD_GUILD_ID")
+	if guildID == "" {
+		fmt.Println("Error: DISCORD_GUILD_ID not found in .env file")
+		return
+	}
+
 	// make a new Discord session using the provided bot token
 	discord, err := discordgo.New("Bot " + token)
 	if err != nil {
@@ -31,8 +38,11 @@ func main() {
 		return
 	}
 
+	// register handlers for Discord events
 	// register the onReady function as a callback for the Ready event
 	discord.AddHandler(onReady)
+	// register the onInteractionCreate function as a callback for the InteractionCreate event
+	discord.AddHandler(onInteractionCreate)
 
 	// open a websocket connection to Discord and begin listening
 	err = discord.Open()
@@ -43,6 +53,18 @@ func main() {
 
 	// status
 	fmt.Println("vexbot connected to discord")
+
+	// register the ping command with Discord
+	_, err = discord.ApplicationCommandCreate(
+		discord.State.User.ID,
+		guildID,
+		pingCommand)
+	if err != nil {
+		fmt.Println("Error registering ping command:", err)
+		return
+	}
+
+	fmt.Println("registered /ping command")
 
 	// defer the closing of the Discord session until the program exits
 	defer discord.Close()
