@@ -10,6 +10,10 @@ import (
 	"github.com/joho/godotenv"
 )
 
+func onReady(discord *discordgo.Session, event *discordgo.Ready) {
+	fmt.Printf("vexbot connect as %s#%s\n", event.User.Username, event.User.Discriminator)
+}
+
 func main() {
 	// load discord token from .env file
 	err := godotenv.Load()
@@ -30,6 +34,9 @@ func main() {
 		fmt.Println("Error creating Discord session:", err)
 		return
 	}
+
+	// register the onReady function as a callback for the Ready event
+	discord.AddHandler(onReady)
 
 	// open a websocket connection to Discord and begin listening
 	err = discord.Open()
