@@ -54,17 +54,14 @@ func main() {
 	// status
 	fmt.Println("vexbot connected to discord")
 
-	// register the ping command with Discord
-	_, err = discord.ApplicationCommandCreate(
-		discord.State.User.ID,
-		guildID,
-		pingCommand)
+	// register the ping command with Discord (scoped to guild)
+	err = registerCommands(discord, guildID)
 	if err != nil {
-		fmt.Println("Error registering ping command:", err)
+		fmt.Println("Error registering commands:", err)
 		return
 	}
 
-	fmt.Println("registered /ping command")
+	fmt.Println("registered commands.")
 
 	// defer the closing of the Discord session until the program exits
 	defer discord.Close()

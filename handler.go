@@ -12,9 +12,6 @@ func onReady(discord *discordgo.Session, event *discordgo.Ready) {
 }
 
 func onInteractionCreate(discord *discordgo.Session, interaction *discordgo.InteractionCreate) {
-	// log the interaction type for debugging purposes
-	fmt.Printf("received interaction: %s\n", interaction.Type)
-
 	// check if the interaction is an application command
 	if interaction.Type != discordgo.InteractionApplicationCommand {
 		return
@@ -22,14 +19,18 @@ func onInteractionCreate(discord *discordgo.Session, interaction *discordgo.Inte
 
 	switch interaction.ApplicationCommandData().Name {
 	case "ping":
-		err := discord.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "Pong!",
-			},
-		})
-		if err != nil {
-			fmt.Println("Error responding to /ping:", err)
-		}
+		handlePing(discord, interaction)
+	}
+}
+
+func handlePing(discord *discordgo.Session, interaction *discordgo.InteractionCreate) {
+	err := discord.InteractionRespond(interaction.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: "Pong!",
+		},
+	})
+	if err != nil {
+		fmt.Println("Error responding to /ping:", err)
 	}
 }
