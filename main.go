@@ -10,10 +10,6 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func onReady(discord *discordgo.Session, event *discordgo.Ready) {
-	fmt.Printf("vexbot connect as %s#%s\n", event.User.Username, event.User.Discriminator)
-}
-
 func main() {
 	// load discord token from .env file
 	err := godotenv.Load()
