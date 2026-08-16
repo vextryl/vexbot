@@ -6,6 +6,7 @@ require (
 	github.com/disgoorg/disgo v0.19.6
 	github.com/disgoorg/godave/golibdave v0.3.0
 	github.com/disgoorg/snowflake/v2 v2.0.3
+	github.com/hraban/opus v0.0.0-20260708213942-bde8e4304501
 	github.com/joho/godotenv v1.5.1
 )
 
