@@ -9,19 +9,28 @@ import (
 	"github.com/hraban/opus"
 )
 
-type audioReceiver struct {
-	mu       sync.Mutex
-	decoders map[snowflake.ID]*opus.Decoder
-}
-
 const (
 	opusSampleRate = 48000
 	opusChannels   = 2
+	maxOpusSamples = 5760
 )
 
-func newAudioReceiver() *audioReceiver {
+type decoderState struct {
+	mu      sync.Mutex
+	decoder *opus.Decoder
+	pcm     []int16
+}
+
+type audioReceiver struct {
+	mu       sync.Mutex
+	decoders map[snowflake.ID]*decoderState
+	sink     AudioSink
+}
+
+func newAudioReceiver(sink AudioSink) *audioReceiver {
 	return &audioReceiver{
-		decoders: make(map[snowflake.ID]*opus.Decoder),
+		decoders: make(map[snowflake.ID]*decoderState),
+		sink:     sink,
 	}
 }
 
@@ -29,35 +38,17 @@ func (r *audioReceiver) ReceiveOpusFrame(
 	userID snowflake.ID,
 	packet *voice.Packet,
 ) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	decoder, ok := r.decoders[userID]
-	if !ok {
-		var err error
-
-		decoder, err = opus.NewDecoder(
-			opusSampleRate,
-			opusChannels,
-		)
-		if err != nil {
-			return fmt.Errorf(
-				"create opus decoder for user %v: %w",
-				userID,
-				err,
-			)
-		}
-
-		r.decoders[userID] = decoder
-
-		fmt.Printf("AUDIO: created decoder for user=%v\n", userID)
+	state, err := r.decoderState(userID)
+	if err != nil {
+		return err
 	}
 
-	pcm := make([]int16, 960*opusChannels)
+	state.mu.Lock()
+	defer state.mu.Unlock()
 
-	_, err := decoder.Decode(
+	samples, err := state.decoder.Decode(
 		packet.Opus,
-		pcm,
+		state.pcm,
 	)
 	if err != nil {
 		return fmt.Errorf(
@@ -67,7 +58,49 @@ func (r *audioReceiver) ReceiveOpusFrame(
 		)
 	}
 
+	frame := AudioFrame{
+		UserID:     userID,
+		Samples:    append([]int16(nil), state.pcm[:samples*opusChannels]...),
+		SampleRate: opusSampleRate,
+		Channels:   opusChannels,
+	}
+
+	r.sink.ConsumeAudioFrame(frame)
+
 	return nil
+}
+
+func (r *audioReceiver) decoderState(userID snowflake.ID) (*decoderState, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	state, ok := r.decoders[userID]
+	if ok {
+		return state, nil
+	}
+
+	decoder, err := opus.NewDecoder(
+		opusSampleRate,
+		opusChannels,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"create opus decoder for user %v: %w",
+			userID,
+			err,
+		)
+	}
+
+	state = &decoderState{
+		decoder: decoder,
+		pcm:     make([]int16, maxOpusSamples*opusChannels),
+	}
+
+	r.decoders[userID] = state
+
+	fmt.Printf("AUDIO: created decoder for user=%v\n", userID)
+
+	return state, nil
 }
 
 func (r *audioReceiver) CleanupUser(userID snowflake.ID) {
@@ -83,7 +116,7 @@ func (r *audioReceiver) Close() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.decoders = make(map[snowflake.ID]*opus.Decoder)
+	r.decoders = make(map[snowflake.ID]*decoderState)
 
 	fmt.Println("AUDIO: receiver closed")
 }

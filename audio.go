@@ -1,0 +1,62 @@
+package main
+
+import (
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/disgoorg/snowflake/v2"
+)
+
+const (
+	audioSampleRate = 48000
+	audioChannels   = 2
+)
+
+type AudioFrame struct {
+	UserID     snowflake.ID
+	Samples    []int16
+	SampleRate int
+	Channels   int
+}
+
+type AudioSink interface {
+	ConsumeAudioFrame(AudioFrame)
+}
+
+type discardAudioSink struct {
+	mu       sync.Mutex
+	duration map[snowflake.ID]time.Duration
+	reported map[snowflake.ID]time.Duration
+}
+
+func newDiscardAudioSink() *discardAudioSink {
+	return &discardAudioSink{
+		duration: make(map[snowflake.ID]time.Duration),
+		reported: make(map[snowflake.ID]time.Duration),
+	}
+}
+
+func (s *discardAudioSink) ConsumeAudioFrame(frame AudioFrame) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	duration := time.Duration(
+		float64(len(frame.Samples)) /
+			float64(frame.Channels) /
+			float64(frame.SampleRate) *
+			float64(time.Second),
+	)
+
+	s.duration[frame.UserID] += duration
+
+	if s.duration[frame.UserID]-s.reported[frame.UserID] >= 5*time.Second {
+		fmt.Printf(
+			"AUDIO: user=%v decoded=%.1fs\n",
+			frame.UserID,
+			s.duration[frame.UserID].Seconds(),
+		)
+
+		s.reported[frame.UserID] = s.duration[frame.UserID]
+	}
+}
