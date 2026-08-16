@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/disgoorg/disgo/voice"
 	"github.com/disgoorg/snowflake/v2"
@@ -16,9 +17,11 @@ const (
 )
 
 type decoderState struct {
-	mu      sync.Mutex
-	decoder *opus.Decoder
-	pcm     []int16
+	mu                sync.Mutex
+	decoder           *opus.Decoder
+	pcm               []int16
+	rtpStartTimestamp *uint32
+	sessionStartTime  time.Duration
 }
 
 type audioReceiver struct {
@@ -34,6 +37,27 @@ func newAudioReceiver(sink AudioSink, session *VoiceSession) *audioReceiver {
 		sink:     sink,
 		session:  session,
 	}
+}
+
+func (r *audioReceiver) audioTimestamp(
+	state *decoderState,
+	packetTimestamp uint32,
+) time.Duration {
+	if state.rtpStartTimestamp == nil {
+		start := packetTimestamp
+		state.rtpStartTimestamp = &start
+		state.sessionStartTime = r.session.Timestamp()
+
+		return state.sessionStartTime
+	}
+
+	elapsed := uint32(packetTimestamp - *state.rtpStartTimestamp)
+
+	return state.sessionStartTime + time.Duration(
+		float64(elapsed)/
+			float64(opusSampleRate)*
+			float64(time.Second),
+	)
 }
 
 func (r *audioReceiver) ReceiveOpusFrame(
@@ -65,7 +89,7 @@ func (r *audioReceiver) ReceiveOpusFrame(
 		Samples:    append([]int16(nil), state.pcm[:samples*opusChannels]...),
 		SampleRate: opusSampleRate,
 		Channels:   opusChannels,
-		Timestamp:  r.session.Timestamp(),
+		Timestamp:  r.audioTimestamp(state, packet.Timestamp),
 	}
 
 	r.sink.ConsumeAudioFrame(frame)

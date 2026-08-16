@@ -26,13 +26,6 @@ type discardAudioSink struct {
 	reported map[snowflake.ID]time.Duration
 }
 
-func newDiscardAudioSink() *discardAudioSink {
-	return &discardAudioSink{
-		duration: make(map[snowflake.ID]time.Duration),
-		reported: make(map[snowflake.ID]time.Duration),
-	}
-}
-
 func (s *discardAudioSink) ConsumeAudioFrame(frame AudioFrame) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

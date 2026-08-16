@@ -84,10 +84,10 @@ func joinUserVoiceChannel(
 		return err
 	}
 
+	chunkSink := discardAudioChunkSink{}
 	session := NewVoiceSession()
-
-	sink := newDiscardAudioSink()
-	receiver := newAudioReceiver(sink, session)
+	audioBuffer := NewSessionAudioBuffer(chunkSink)
+	receiver := newAudioReceiver(audioBuffer, session)
 	conn.SetOpusFrameReceiver(receiver)
 
 	return nil
