@@ -56,22 +56,6 @@ func newVoiceManager(
 	)
 }
 
-func joinVoiceChannel(
-	ctx context.Context,
-	manager voice.Manager,
-	guildID snowflake.ID,
-	channelID snowflake.ID,
-) error {
-	conn := manager.CreateConn(guildID)
-
-	return conn.Open(
-		ctx,
-		channelID,
-		true, // selfMute
-		true, // selfDeaf
-	)
-}
-
 func joinUserVoiceChannel(
 	ctx context.Context,
 	manager voice.Manager,
@@ -90,10 +74,17 @@ func joinUserVoiceChannel(
 
 	conn := manager.CreateConn(guildID)
 
-	return conn.Open(
+	err := conn.Open(
 		ctx,
 		*voiceState.ChannelID,
-		true, // selfMute
-		true, // selfDeaf
+		true,  // selfMute
+		false, // selfDeaf
 	)
+	if err != nil {
+		return err
+	}
+
+	conn.SetOpusFrameReceiver(&audioReceiver{})
+
+	return nil
 }
