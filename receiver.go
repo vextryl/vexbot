@@ -25,12 +25,14 @@ type audioReceiver struct {
 	mu       sync.Mutex
 	decoders map[snowflake.ID]*decoderState
 	sink     AudioSink
+	session  *VoiceSession
 }
 
-func newAudioReceiver(sink AudioSink) *audioReceiver {
+func newAudioReceiver(sink AudioSink, session *VoiceSession) *audioReceiver {
 	return &audioReceiver{
 		decoders: make(map[snowflake.ID]*decoderState),
 		sink:     sink,
+		session:  session,
 	}
 }
 
@@ -63,6 +65,7 @@ func (r *audioReceiver) ReceiveOpusFrame(
 		Samples:    append([]int16(nil), state.pcm[:samples*opusChannels]...),
 		SampleRate: opusSampleRate,
 		Channels:   opusChannels,
+		Timestamp:  r.session.Timestamp(),
 	}
 
 	r.sink.ConsumeAudioFrame(frame)

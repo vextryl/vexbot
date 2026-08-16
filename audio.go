@@ -8,16 +8,12 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 )
 
-const (
-	audioSampleRate = 48000
-	audioChannels   = 2
-)
-
 type AudioFrame struct {
 	UserID     snowflake.ID
 	Samples    []int16
 	SampleRate int
 	Channels   int
+	Timestamp  time.Duration
 }
 
 type AudioSink interface {
@@ -52,9 +48,10 @@ func (s *discardAudioSink) ConsumeAudioFrame(frame AudioFrame) {
 
 	if s.duration[frame.UserID]-s.reported[frame.UserID] >= 5*time.Second {
 		fmt.Printf(
-			"AUDIO: user=%v decoded=%.1fs\n",
+			"AUDIO: user=%v decoded=%.1fs timestamp=%.1fs\n",
 			frame.UserID,
 			s.duration[frame.UserID].Seconds(),
+			frame.Timestamp.Seconds(),
 		)
 
 		s.reported[frame.UserID] = s.duration[frame.UserID]
