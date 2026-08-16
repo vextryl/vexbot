@@ -10,6 +10,7 @@ import (
 	"github.com/disgoorg/disgo"
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/snowflake/v2"
 	"github.com/joho/godotenv"
 )
 
@@ -34,9 +35,41 @@ func main() {
 		return
 	}
 
-	client, err := disgo.New(
+	// disgo requires botUserID for the voice manager
+	botUserID, err := botUserIDFromToken(token)
+	if err != nil {
+		fmt.Println("Error getting bot user ID:", err)
+		return
+	}
+
+	// The voice manager needs to update the bot's voice state,
+	// but the client needs the voice manager during construction.
+	// A closure lets us resolve that dependency after the client exists.
+	var client *bot.Client
+
+	voiceManager := newVoiceManager(
+		func(
+			ctx context.Context,
+			guildID snowflake.ID,
+			channelID *snowflake.ID,
+			selfMute bool,
+			selfDeaf bool,
+		) error {
+			return client.UpdateVoiceState(
+				ctx,
+				guildID,
+				channelID,
+				selfMute,
+				selfDeaf,
+			)
+		},
+		botUserID,
+	)
+
+	client, err = disgo.New(
 		token,
 		bot.WithDefaultGateway(),
+		bot.WithVoiceManager(voiceManager),
 	)
 	if err != nil {
 		fmt.Println("Error creating Discord client:", err)
@@ -72,7 +105,8 @@ func main() {
 	// status
 	fmt.Println("registered commands")
 
-	// Wait for a termination signal to gracefully shut down the bot - otherwise program will exit immediately
+	// Wait for a termination signal to gracefully shut down the bot
+	// otherwise program will exit immediately
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
