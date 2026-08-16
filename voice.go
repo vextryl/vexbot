@@ -84,7 +84,8 @@ func joinUserVoiceChannel(
 		return err
 	}
 
-	conn.SetOpusFrameReceiver(&audioReceiver{})
+	receiver := newAudioReceiver()
+	conn.SetOpusFrameReceiver(receiver)
 
 	return nil
 }
