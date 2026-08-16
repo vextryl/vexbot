@@ -1,30 +1,27 @@
 package main
 
 import (
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/snowflake/v2"
 )
 
-// pingCommand is a simple command that responds with "Pong!" when invoked.
-var pingCommand = &discordgo.ApplicationCommand{
+var pingCommand = discord.SlashCommandCreate{
 	Name:        "ping",
 	Description: "Check if vexbot is alive",
 }
 
-func registerCommands(discord *discordgo.Session, guildID string) error {
-	commands := []*discordgo.ApplicationCommand{
+func registerCommands(client *bot.Client, guildID string) error {
+	guild, err := snowflake.Parse(guildID)
+	if err != nil {
+		return err
+	}
+
+	_, err = client.Rest.CreateGuildCommand(
+		client.ID(),
+		guild,
 		pingCommand,
-	}
+	)
 
-	for _, command := range commands {
-		_, err := discord.ApplicationCommandCreate(
-			discord.State.User.ID,
-			guildID,
-			command,
-		)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return err
 }

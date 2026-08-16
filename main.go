@@ -1,12 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/bwmarrin/discordgo"
+	"github.com/disgoorg/disgo"
+	"github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/events"
 	"github.com/joho/godotenv"
 )
 
@@ -27,44 +30,47 @@ func main() {
 	// parse guild ID
 	guildID := os.Getenv("DISCORD_GUILD_ID")
 	if guildID == "" {
-		fmt.Println("Error: DISCORD_GUILD_ID not found in .env file")
+		fmt.Println("Error: DISCORD_GUILD_ID is not set")
 		return
 	}
 
-	// make a new Discord session using the provided bot token
-	discord, err := discordgo.New("Bot " + token)
+	client, err := disgo.New(
+		token,
+		bot.WithDefaultGateway(),
+	)
 	if err != nil {
-		fmt.Println("Error creating Discord session:", err)
+		fmt.Println("Error creating Discord client:", err)
 		return
 	}
 
-	// register handlers for Discord events
-	// register the onReady function as a callback for the Ready event
-	discord.AddHandler(onReady)
-	// register the onInteractionCreate function as a callback for the InteractionCreate event
-	discord.AddHandler(onInteractionCreate)
+	// defer the closing of the Discord session until the program exits
+	defer client.Close(context.Background())
 
-	// open a websocket connection to Discord and begin listening
-	err = discord.Open()
+	// add event listeners
+	client.AddEventListeners(
+		&events.ListenerAdapter{
+			OnApplicationCommandInteraction: onApplicationCommandInteraction,
+		},
+	)
+
+	// open the Discord gateway to start receiving events
+	err = client.OpenGateway(context.Background())
 	if err != nil {
-		fmt.Println("Error opening Discord connection:", err)
+		fmt.Println("Error opening Discord gateway:", err)
 		return
 	}
 
 	// status
 	fmt.Println("vexbot connected to discord")
 
-	// register the ping command with Discord (scoped to guild)
-	err = registerCommands(discord, guildID)
+	err = registerCommands(client, guildID)
 	if err != nil {
 		fmt.Println("Error registering commands:", err)
 		return
 	}
 
-	fmt.Println("registered commands.")
-
-	// defer the closing of the Discord session until the program exits
-	defer discord.Close()
+	// status
+	fmt.Println("registered commands")
 
 	// Wait for a termination signal to gracefully shut down the bot - otherwise program will exit immediately
 	stop := make(chan os.Signal, 1)
