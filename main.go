@@ -71,6 +71,7 @@ func main() {
 	client, err = disgo.New(
 		token,
 		bot.WithDefaultGateway(),
+		bot.WithVoiceManager(voiceManager),
 		bot.WithGatewayConfigOpts(
 			gateway.WithIntents(
 				gateway.IntentGuilds,
@@ -111,6 +112,13 @@ func main() {
 					event.VoiceState.GuildID,
 					event.VoiceState.UserID,
 					channelID,
+				)
+			},
+			OnVoiceServerUpdate: func(event *events.VoiceServerUpdate) {
+				fmt.Printf(
+					"VOICE SERVER: guild=%v endpoint=%v\n",
+					event.GuildID,
+					event.Endpoint,
 				)
 			},
 		},

@@ -48,26 +48,27 @@ func handleJoin(
 
 	user := event.User()
 
-	err := joinUserVoiceChannel(
-		context.Background(),
-		voiceManager,
-		client.Caches,
-		*guildID,
-		user.ID,
-	)
-	if err != nil {
-		fmt.Println("Error joining voice channel:", err)
-
-		_ = event.CreateMessage(discord.MessageCreate{
-			Content: fmt.Sprintf("I couldn't join your voice channel: %v", err),
-		})
-		return
-	}
-
-	err = event.CreateMessage(discord.MessageCreate{
-		Content: "Joined your voice channel.",
+	err := event.CreateMessage(discord.MessageCreate{
+		Content: "Attempting to join your voice channel...",
 	})
 	if err != nil {
 		fmt.Println("Error responding to /join:", err)
+		return
 	}
+
+	go func() {
+		err := joinUserVoiceChannel(
+			context.Background(),
+			voiceManager,
+			client.Caches,
+			*guildID,
+			user.ID,
+		)
+		if err != nil {
+			fmt.Println("Error joining voice channel:", err)
+			return
+		}
+
+		fmt.Println("Successfully joined voice channel")
+	}()
 }
