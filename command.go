@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
@@ -11,17 +13,33 @@ var pingCommand = discord.SlashCommandCreate{
 	Description: "Check if vexbot is alive",
 }
 
+var joinCommand = discord.SlashCommandCreate{
+	Name:        "join",
+	Description: "Join your current voice channel",
+}
+
 func registerCommands(client *bot.Client, guildID string) error {
 	guild, err := snowflake.Parse(guildID)
 	if err != nil {
 		return err
 	}
 
-	_, err = client.Rest.CreateGuildCommand(
-		client.ID(),
-		guild,
+	commands := []discord.SlashCommandCreate{
 		pingCommand,
-	)
+		joinCommand,
+	}
 
-	return err
+	for _, command := range commands {
+		_, err = client.Rest.CreateGuildCommand(
+			client.ID(),
+			guild,
+			command,
+		)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("registered command: %s\n", command.Name)
+	}
+
+	return nil
 }

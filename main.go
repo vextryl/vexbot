@@ -9,7 +9,9 @@ import (
 
 	"github.com/disgoorg/disgo"
 	"github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/cache"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/joho/godotenv"
 )
@@ -69,7 +71,20 @@ func main() {
 	client, err = disgo.New(
 		token,
 		bot.WithDefaultGateway(),
-		bot.WithVoiceManager(voiceManager),
+		bot.WithGatewayConfigOpts(
+			gateway.WithIntents(
+				gateway.IntentGuilds,
+				gateway.IntentGuildVoiceStates,
+			),
+		),
+		bot.WithCacheConfigOpts(
+			cache.WithCaches(
+				cache.FlagGuilds,
+				cache.FlagMembers,
+				cache.FlagChannels,
+				cache.FlagVoiceStates,
+			),
+		),
 	)
 	if err != nil {
 		fmt.Println("Error creating Discord client:", err)
@@ -82,7 +97,22 @@ func main() {
 	// add event listeners
 	client.AddEventListeners(
 		&events.ListenerAdapter{
-			OnApplicationCommandInteraction: onApplicationCommandInteraction,
+			OnApplicationCommandInteraction: func(event *events.ApplicationCommandInteractionCreate) {
+				onApplicationCommandInteraction(event, client, voiceManager)
+			},
+			OnGuildVoiceStateUpdate: func(event *events.GuildVoiceStateUpdate) {
+				channelID := "<nil>"
+				if event.VoiceState.ChannelID != nil {
+					channelID = event.VoiceState.ChannelID.String()
+				}
+
+				fmt.Printf(
+					"VOICE STATE: guild=%v user=%v channel=%s\n",
+					event.VoiceState.GuildID,
+					event.VoiceState.UserID,
+					channelID,
+				)
+			},
 		},
 	)
 

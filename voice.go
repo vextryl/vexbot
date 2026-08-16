@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/disgoorg/disgo/cache"
 	"github.com/disgoorg/disgo/voice"
+	"github.com/disgoorg/godave/golibdave"
 	"github.com/disgoorg/snowflake/v2"
 )
 
@@ -50,5 +52,48 @@ func newVoiceManager(
 			)
 		},
 		userID,
+		voice.WithDaveSessionCreateFunc(golibdave.NewSession),
+	)
+}
+
+func joinVoiceChannel(
+	ctx context.Context,
+	manager voice.Manager,
+	guildID snowflake.ID,
+	channelID snowflake.ID,
+) error {
+	conn := manager.CreateConn(guildID)
+
+	return conn.Open(
+		ctx,
+		channelID,
+		true, // selfMute
+		true, // selfDeaf
+	)
+}
+
+func joinUserVoiceChannel(
+	ctx context.Context,
+	manager voice.Manager,
+	caches cache.Caches,
+	guildID snowflake.ID,
+	userID snowflake.ID,
+) error {
+	voiceState, ok := caches.VoiceState(guildID, userID)
+	if !ok {
+		return fmt.Errorf("user is not in a voice channel")
+	}
+
+	if voiceState.ChannelID == nil {
+		return fmt.Errorf("user is not in a voice channel")
+	}
+
+	conn := manager.CreateConn(guildID)
+
+	return conn.Open(
+		ctx,
+		*voiceState.ChannelID,
+		true, // selfMute
+		true, // selfDeaf
 	)
 }
