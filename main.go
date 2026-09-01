@@ -37,6 +37,15 @@ func main() {
 		return
 	}
 
+	transcriber, err := newWhisperTranscriberFromEnv()
+	if err != nil {
+		fmt.Println("Error configuring local transcription:", err)
+		return
+	}
+	if transcriber == nil {
+		fmt.Println("local transcription is not configured")
+	}
+
 	// disgo requires botUserID for the voice manager
 	botUserID, err := botUserIDFromToken(token)
 	if err != nil {
@@ -67,7 +76,7 @@ func main() {
 		},
 		botUserID,
 	)
-	sessions := NewSessionManager()
+	sessions := NewSessionManager(transcriber)
 
 	client, err = disgo.New(
 		token,

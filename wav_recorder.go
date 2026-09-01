@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -30,9 +31,15 @@ type wavRecorder struct {
 type wavWriter struct {
 	file       *os.File
 	writer     *bufio.Writer
+	path       string
 	sampleRate int
 	channels   int
 	dataBytes  uint32
+}
+
+type RecordingFile struct {
+	UserID snowflake.ID
+	Path   string
 }
 
 func newWAVRecorder(guildID snowflake.ID, startedAt time.Time) (*wavRecorder, error) {
@@ -50,6 +57,24 @@ func newWAVRecorder(guildID snowflake.ID, startedAt time.Time) (*wavRecorder, er
 
 func (r *wavRecorder) Directory() string {
 	return r.dir
+}
+
+func (r *wavRecorder) Files() []RecordingFile {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	files := make([]RecordingFile, 0, len(r.writers))
+	for userID, writer := range r.writers {
+		files = append(files, RecordingFile{
+			UserID: userID,
+			Path:   writer.path,
+		})
+	}
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Path < files[j].Path
+	})
+
+	return files
 }
 
 func (r *wavRecorder) ConsumeAudioChunk(chunk AudioChunk) {
@@ -111,6 +136,7 @@ func (r *wavRecorder) newWriter(userID snowflake.ID, sampleRate, channels int) (
 	writer := &wavWriter{
 		file:       file,
 		writer:     bufio.NewWriter(file),
+		path:       path,
 		sampleRate: sampleRate,
 		channels:   channels,
 	}

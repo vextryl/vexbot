@@ -50,6 +50,10 @@ func (s *VoiceSession) RecorderDirectory() string {
 	return s.recorder.Directory()
 }
 
+func (s *VoiceSession) RecordingFiles() []RecordingFile {
+	return s.recorder.Files()
+}
+
 func (s *VoiceSession) AudioBuffer() *SessionAudioBuffer {
 	return s.buffer
 }
@@ -73,15 +77,17 @@ func (s *VoiceSession) Stop(ctx context.Context) error {
 }
 
 type SessionManager struct {
-	mu       sync.Mutex
-	sessions map[snowflake.ID]*VoiceSession
-	starting map[snowflake.ID]struct{}
+	mu          sync.Mutex
+	sessions    map[snowflake.ID]*VoiceSession
+	starting    map[snowflake.ID]struct{}
+	transcriber Transcriber
 }
 
-func NewSessionManager() *SessionManager {
+func NewSessionManager(transcriber Transcriber) *SessionManager {
 	return &SessionManager{
-		sessions: make(map[snowflake.ID]*VoiceSession),
-		starting: make(map[snowflake.ID]struct{}),
+		sessions:    make(map[snowflake.ID]*VoiceSession),
+		starting:    make(map[snowflake.ID]struct{}),
+		transcriber: transcriber,
 	}
 }
 
@@ -115,27 +121,55 @@ func (m *SessionManager) CancelReservation(guildID snowflake.ID) {
 	delete(m.starting, guildID)
 }
 
-func (m *SessionManager) Stop(ctx context.Context, guildID, userID snowflake.ID) (string, error) {
+type StoppedSession struct {
+	Directory string
+	Files     []RecordingFile
+}
+
+func (m *SessionManager) Stop(ctx context.Context, guildID, userID snowflake.ID) (StoppedSession, error) {
 	m.mu.Lock()
 	session, ok := m.sessions[guildID]
 	m.mu.Unlock()
 
 	if !ok {
-		return "", fmt.Errorf("there is no active recording session")
+		return StoppedSession{}, fmt.Errorf("there is no active recording session")
 	}
 	if session.OwnerID() != userID {
-		return "", fmt.Errorf("only the user who started the recording can stop it")
+		return StoppedSession{}, fmt.Errorf("only the user who started the recording can stop it")
 	}
 
 	if err := session.Stop(ctx); err != nil {
-		return "", err
+		return StoppedSession{}, err
 	}
 
 	m.mu.Lock()
 	delete(m.sessions, guildID)
 	m.mu.Unlock()
 
-	return session.RecorderDirectory(), nil
+	return StoppedSession{
+		Directory: session.RecorderDirectory(),
+		Files:     session.RecordingFiles(),
+	}, nil
+}
+
+func (m *SessionManager) StartTranscription(session StoppedSession) bool {
+	if m.transcriber == nil || len(session.Files) == 0 {
+		return false
+	}
+
+	go func() {
+		fmt.Printf("Starting local transcription for %d recording(s)\n", len(session.Files))
+		for _, recording := range session.Files {
+			transcriptPath, err := m.transcriber.Transcribe(context.Background(), recording)
+			if err != nil {
+				fmt.Printf("Error transcribing user %v: %v\n", recording.UserID, err)
+				continue
+			}
+			fmt.Printf("Transcript for user %v saved to %s\n", recording.UserID, transcriptPath)
+		}
+	}()
+
+	return true
 }
 
 func (m *SessionManager) Close(ctx context.Context) error {

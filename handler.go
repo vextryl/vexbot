@@ -96,7 +96,7 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, sessions *Ses
 		return
 	}
 
-	directory, err := sessions.Stop(context.Background(), *guildID, event.User().ID)
+	session, err := sessions.Stop(context.Background(), *guildID, event.User().ID)
 	if err != nil {
 		_ = event.CreateMessage(discord.MessageCreate{
 			Content: "Unable to stop recording: " + err.Error(),
@@ -104,8 +104,14 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, sessions *Ses
 		return
 	}
 
-	fmt.Printf("Recording stopped; files saved to %s\n", directory)
+	fmt.Printf("Recording stopped; files saved to %s\n", session.Directory)
+	message := "Recording stopped and I left the voice channel."
+	if sessions.StartTranscription(session) {
+		message += " Local transcription has started."
+	} else {
+		message += " Local transcription is not configured."
+	}
 	_ = event.CreateMessage(discord.MessageCreate{
-		Content: "Recording stopped and I left the voice channel.",
+		Content: message,
 	})
 }
