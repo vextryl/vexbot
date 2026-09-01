@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	audioChunkDuration  = time.Second
-	audioFlushAfterIdle = 500 * time.Millisecond
+	audioChunkDuration      = time.Second
+	audioFlushAfterIdle     = 500 * time.Millisecond
+	audioTimestampTolerance = time.Millisecond
 )
 
 type AudioChunk struct {
@@ -99,6 +100,13 @@ func (b *SessionAudioBuffer) ConsumeAudioFrame(frame AudioFrame) {
 		int(audioChunkDuration/time.Second)
 	frameTimestamp := frame.Timestamp
 
+	if len(speaker.samples) > 0 && !timestampsMatch(
+		frameTimestamp,
+		speaker.nextTimestamp,
+	) {
+		b.flushSpeakerLocked(frame.UserID, speaker)
+	}
+
 	for len(frame.Samples) > 0 {
 		if len(speaker.samples) == 0 {
 			speaker.startTime = frameTimestamp
@@ -138,6 +146,15 @@ func (b *SessionAudioBuffer) ConsumeAudioFrame(frame AudioFrame) {
 	} else {
 		speaker.timer.Reset(audioFlushAfterIdle)
 	}
+}
+
+func timestampsMatch(first, second time.Duration) bool {
+	difference := first - second
+	if difference < 0 {
+		difference = -difference
+	}
+
+	return difference <= audioTimestampTolerance
 }
 
 func (b *SessionAudioBuffer) CleanupUser(userID snowflake.ID) {

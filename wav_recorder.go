@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -16,16 +17,19 @@ import (
 
 const (
 	recordingsDirectory = "recordings"
+	timelineFileName    = "timeline.json"
 	wavHeaderSize       = 44
 	wavSampleBytes      = 2
 )
 
 type wavRecorder struct {
-	mu      sync.Mutex
-	dir     string
-	writers map[snowflake.ID]*wavWriter
-	closed  bool
-	err     error
+	mu       sync.Mutex
+	dir      string
+	writers  map[snowflake.ID]*wavWriter
+	spans    []recordingSpan
+	lastSpan map[snowflake.ID]int
+	closed   bool
+	err      error
 }
 
 type wavWriter struct {
@@ -42,6 +46,27 @@ type RecordingFile struct {
 	Path   string
 }
 
+type recordingSpan struct {
+	UserID       snowflake.ID
+	SessionStart time.Duration
+	SessionEnd   time.Duration
+	WAVStart     time.Duration
+	WAVEnd       time.Duration
+}
+
+type sessionTimeline struct {
+	Version int            `json:"version"`
+	Spans   []timelineSpan `json:"spans"`
+}
+
+type timelineSpan struct {
+	UserID         string `json:"user_id"`
+	SessionStartMS int64  `json:"session_start_ms"`
+	SessionEndMS   int64  `json:"session_end_ms"`
+	WAVStartMS     int64  `json:"wav_start_ms"`
+	WAVEndMS       int64  `json:"wav_end_ms"`
+}
+
 func newWAVRecorder(guildID snowflake.ID, startedAt time.Time) (*wavRecorder, error) {
 	sessionID := fmt.Sprintf("%s-%s", startedAt.UTC().Format("20060102T150405Z"), guildID)
 	dir := filepath.Join(recordingsDirectory, sessionID)
@@ -50,8 +75,9 @@ func newWAVRecorder(guildID snowflake.ID, startedAt time.Time) (*wavRecorder, er
 	}
 
 	return &wavRecorder{
-		dir:     dir,
-		writers: make(map[snowflake.ID]*wavWriter),
+		dir:      dir,
+		writers:  make(map[snowflake.ID]*wavWriter),
+		lastSpan: make(map[snowflake.ID]int),
 	}, nil
 }
 
@@ -101,9 +127,20 @@ func (r *wavRecorder) ConsumeAudioChunk(chunk AudioChunk) {
 		return
 	}
 
+	wavStart := writer.duration()
+	duration := chunkDuration(chunk)
 	if err := writer.writeSamples(chunk.Samples); err != nil {
 		r.setError(fmt.Errorf("write audio for user %v: %w", chunk.UserID, err))
+		return
 	}
+
+	r.recordSpan(recordingSpan{
+		UserID:       chunk.UserID,
+		SessionStart: chunk.Timestamp,
+		SessionEnd:   chunk.Timestamp + duration,
+		WAVStart:     wavStart,
+		WAVEnd:       wavStart + duration,
+	})
 }
 
 func (r *wavRecorder) Close() error {
@@ -123,6 +160,14 @@ func (r *wavRecorder) Close() error {
 	}
 
 	r.setError(closeErr)
+	if r.err != nil {
+		return r.err
+	}
+
+	if err := r.writeTimeline(); err != nil {
+		r.setError(fmt.Errorf("write session timeline: %w", err))
+	}
+
 	return r.err
 }
 
@@ -152,6 +197,78 @@ func (r *wavRecorder) setError(err error) {
 	if err != nil && r.err == nil {
 		r.err = err
 	}
+}
+
+func (r *wavRecorder) recordSpan(span recordingSpan) {
+	if lastIndex, ok := r.lastSpan[span.UserID]; ok {
+		last := &r.spans[lastIndex]
+		if timestampsMatch(last.SessionEnd, span.SessionStart) &&
+			timestampsMatch(last.WAVEnd, span.WAVStart) {
+			last.SessionEnd = span.SessionEnd
+			last.WAVEnd = span.WAVEnd
+			return
+		}
+	}
+
+	r.lastSpan[span.UserID] = len(r.spans)
+	r.spans = append(r.spans, span)
+}
+
+func (r *wavRecorder) writeTimeline() error {
+	spans := append([]recordingSpan(nil), r.spans...)
+	sort.Slice(spans, func(i, j int) bool {
+		if spans[i].SessionStart == spans[j].SessionStart {
+			return spans[i].UserID < spans[j].UserID
+		}
+		return spans[i].SessionStart < spans[j].SessionStart
+	})
+
+	timeline := sessionTimeline{
+		Version: 1,
+		Spans:   make([]timelineSpan, 0, len(spans)),
+	}
+	for _, span := range spans {
+		timeline.Spans = append(timeline.Spans, timelineSpan{
+			UserID:         span.UserID.String(),
+			SessionStartMS: span.SessionStart.Milliseconds(),
+			SessionEndMS:   span.SessionEnd.Milliseconds(),
+			WAVStartMS:     span.WAVStart.Milliseconds(),
+			WAVEndMS:       span.WAVEnd.Milliseconds(),
+		})
+	}
+
+	contents, err := json.MarshalIndent(timeline, "", "  ")
+	if err != nil {
+		return err
+	}
+	contents = append(contents, '\n')
+
+	temporaryFile, err := os.CreateTemp(r.dir, timelineFileName+"-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporaryFile.Name()
+	defer os.Remove(temporaryPath)
+
+	if _, err := temporaryFile.Write(contents); err != nil {
+		_ = temporaryFile.Close()
+		return err
+	}
+	if err := temporaryFile.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(temporaryPath, filepath.Join(r.dir, timelineFileName))
+}
+
+func chunkDuration(chunk AudioChunk) time.Duration {
+	frames := len(chunk.Samples) / chunk.Channels
+	return time.Duration(frames) * time.Second / time.Duration(chunk.SampleRate)
+}
+
+func (w *wavWriter) duration() time.Duration {
+	frames := int64(w.dataBytes) / int64(w.channels*wavSampleBytes)
+	return time.Duration(frames) * time.Second / time.Duration(w.sampleRate)
 }
 
 func (w *wavWriter) writeSamples(samples []int16) error {
