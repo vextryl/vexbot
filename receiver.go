@@ -64,6 +64,13 @@ func (r *audioReceiver) ReceiveOpusFrame(
 	userID snowflake.ID,
 	packet *voice.Packet,
 ) error {
+	// Discord can send RTP before its separate SPEAKING gateway event maps the
+	// packet's SSRC to a user. Without that mapping, DAVE cannot select the
+	// speaker's decryptor and the payload is not safe to decode.
+	if userID == 0 {
+		return nil
+	}
+
 	state, err := r.decoderState(userID)
 	if err != nil {
 		return err
@@ -77,11 +84,10 @@ func (r *audioReceiver) ReceiveOpusFrame(
 		state.pcm,
 	)
 	if err != nil {
-		return fmt.Errorf(
-			"decode opus frame for user %v: %w",
-			userID,
-			err,
-		)
+		// A DAVE or SSRC transition can leave a small number of unusable RTP
+		// frames at the start of a speaker's stream. They cannot be recovered,
+		// but later frames for the same decoder remain usable.
+		return nil
 	}
 
 	frame := AudioFrame{
