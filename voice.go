@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/disgoorg/disgo/cache"
@@ -52,6 +53,7 @@ func newVoiceManager(
 			)
 		},
 		userID,
+		voice.WithLogger(newDAVEDecryptRateLimitedLogger(slog.Default())),
 		voice.WithDaveSessionCreateFunc(golibdave.NewSession),
 	)
 }
