@@ -159,6 +159,7 @@ func (m *SessionManager) StartTranscription(session StoppedSession) bool {
 
 	go func() {
 		fmt.Printf("Starting local transcription for %d recording(s)\n", len(session.Files))
+		transcriptions := make(map[string]Transcription, len(session.Files))
 		for _, recording := range session.Files {
 			transcription, err := m.transcriber.Transcribe(context.Background(), recording)
 			if err != nil {
@@ -172,7 +173,15 @@ func (m *SessionManager) StartTranscription(session StoppedSession) bool {
 				len(transcription.Tokens),
 				transcription.JSONPath,
 			)
+			transcriptions[recording.UserID.String()] = transcription
 		}
+
+		transcriptPath, lineCount, err := writeCombinedTranscript(session.Directory, transcriptions)
+		if err != nil {
+			fmt.Printf("Error writing combined transcript: %v\n", err)
+			return
+		}
+		fmt.Printf("Combined transcript saved to %s (%d line(s))\n", transcriptPath, lineCount)
 	}()
 
 	return true

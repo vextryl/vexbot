@@ -9,6 +9,8 @@ VexBot records one WAV file per speaker. To transcribe those recordings after
 runs Whisper.cpp locally. Each speaker's transcript is written beside their WAV
 file as `<discord-user-id>.txt`; Whisper's WAV-relative timestamped tokens are
 also saved as `<discord-user-id>.json`.
+After all speaker transcriptions finish, VexBot writes a session-level
+`transcript.txt` ordered by the shared recording timeline.
 
 ## Roadmap
 

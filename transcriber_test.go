@@ -35,8 +35,10 @@ func TestParseWhisperJSON(t *testing.T) {
       "offsets": { "from": 640, "to": 11280 },
       "text": " A recorded phrase. ",
       "tokens": [
+        { "offsets": { "from": 0, "to": 0 }, "id": 50363, "text": "<|en|>" },
         { "offsets": { "from": 640, "to": 4120 }, "text": " A recorded" },
-        { "offsets": { "from": 4120, "to": 11280 }, "text": " phrase." }
+        { "offsets": { "from": 4120, "to": 11280 }, "text": " phrase." },
+        { "offsets": { "from": 12000, "to": 12000 }, "id": 50863, "text": "<|endoftext|>" }
       ]
     }
   ]

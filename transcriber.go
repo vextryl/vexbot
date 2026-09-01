@@ -17,6 +17,7 @@ const (
 	whisperDTWPresetEnv = "WHISPER_DTW_PRESET"
 	ffmpegPathEnv       = "FFMPEG_PATH"
 	whisperLanguageEnv  = "WHISPER_LANGUAGE"
+	whisperEndOfTextID  = 50256
 )
 
 type Transcriber interface {
@@ -59,6 +60,7 @@ type whisperJSONOffsets struct {
 
 type whisperJSONToken struct {
 	Offsets *whisperJSONOffsets `json:"offsets"`
+	ID      int                 `json:"id"`
 	Text    string              `json:"text"`
 }
 
@@ -193,6 +195,9 @@ func parseWhisperJSON(contents []byte) ([]TranscriptionSegment, []TranscriptionT
 		})
 
 		for tokenIndex, token := range segment.Tokens {
+			if token.ID >= whisperEndOfTextID {
+				continue
+			}
 			if token.Offsets == nil {
 				if strings.TrimSpace(token.Text) == "" {
 					continue
