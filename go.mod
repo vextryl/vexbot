@@ -21,3 +21,7 @@ require (
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 )
+
+// Remove this replacement when github.com/disgoorg/godave/golibdave includes
+// the corrected passthrough copy in a released version.
+replace github.com/disgoorg/godave/golibdave => ./third_party/golibdave
