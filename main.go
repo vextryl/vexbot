@@ -67,6 +67,7 @@ func main() {
 		},
 		botUserID,
 	)
+	sessions := NewSessionManager()
 
 	client, err = disgo.New(
 		token,
@@ -94,12 +95,17 @@ func main() {
 
 	// defer the closing of the Discord session until the program exits
 	defer client.Close(context.Background())
+	defer func() {
+		if err := sessions.Close(context.Background()); err != nil {
+			fmt.Println("Error finalizing recordings:", err)
+		}
+	}()
 
 	// add event listeners
 	client.AddEventListeners(
 		&events.ListenerAdapter{
 			OnApplicationCommandInteraction: func(event *events.ApplicationCommandInteractionCreate) {
-				onApplicationCommandInteraction(event, client, voiceManager)
+				onApplicationCommandInteraction(event, client, voiceManager, sessions)
 			},
 			OnGuildVoiceStateUpdate: func(event *events.GuildVoiceStateUpdate) {
 				channelID := "<nil>"

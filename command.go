@@ -18,6 +18,11 @@ var joinCommand = discord.SlashCommandCreate{
 	Description: "Join your current voice channel",
 }
 
+var stopCommand = discord.SlashCommandCreate{
+	Name:        "stop",
+	Description: "Stop recording and leave the voice channel",
+}
+
 func registerCommands(client *bot.Client, guildID string) error {
 	guild, err := snowflake.Parse(guildID)
 	if err != nil {
@@ -27,6 +32,7 @@ func registerCommands(client *bot.Client, guildID string) error {
 	commands := []discord.SlashCommandCreate{
 		pingCommand,
 		joinCommand,
+		stopCommand,
 	}
 
 	for _, command := range commands {

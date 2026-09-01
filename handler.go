@@ -14,13 +14,17 @@ func onApplicationCommandInteraction(
 	event *events.ApplicationCommandInteractionCreate,
 	client *bot.Client,
 	voiceManager voice.Manager,
+	sessions *SessionManager,
 ) {
 	switch event.SlashCommandInteractionData().CommandName() {
 	case "ping":
 		handlePing(event)
 
 	case "join":
-		handleJoin(event, client, voiceManager)
+		handleJoin(event, client, voiceManager, sessions)
+
+	case "stop":
+		handleStop(event, sessions)
 	}
 }
 
@@ -37,6 +41,7 @@ func handleJoin(
 	event *events.ApplicationCommandInteractionCreate,
 	client *bot.Client,
 	voiceManager voice.Manager,
+	sessions *SessionManager,
 ) {
 	guildID := event.GuildID()
 	if guildID == nil {
@@ -47,17 +52,24 @@ func handleJoin(
 	}
 
 	user := event.User()
+	if !sessions.Reserve(*guildID) {
+		_ = event.CreateMessage(discord.MessageCreate{
+			Content: "I am already recording or connecting in this server.",
+		})
+		return
+	}
 
 	err := event.CreateMessage(discord.MessageCreate{
 		Content: "Attempting to join your voice channel...",
 	})
 	if err != nil {
+		sessions.CancelReservation(*guildID)
 		fmt.Println("Error responding to /join:", err)
 		return
 	}
 
 	go func() {
-		err := joinUserVoiceChannel(
+		session, err := joinUserVoiceChannel(
 			context.Background(),
 			voiceManager,
 			client.Caches,
@@ -65,10 +77,35 @@ func handleJoin(
 			user.ID,
 		)
 		if err != nil {
+			sessions.CancelReservation(*guildID)
 			fmt.Println("Error joining voice channel:", err)
 			return
 		}
 
-		fmt.Println("Successfully joined voice channel")
+		sessions.Start(session)
+		fmt.Printf("Successfully joined voice channel; recording to %s\n", session.RecorderDirectory())
 	}()
+}
+
+func handleStop(event *events.ApplicationCommandInteractionCreate, sessions *SessionManager) {
+	guildID := event.GuildID()
+	if guildID == nil {
+		_ = event.CreateMessage(discord.MessageCreate{
+			Content: "This command can only be used in a server.",
+		})
+		return
+	}
+
+	directory, err := sessions.Stop(context.Background(), *guildID, event.User().ID)
+	if err != nil {
+		_ = event.CreateMessage(discord.MessageCreate{
+			Content: "Unable to stop recording: " + err.Error(),
+		})
+		return
+	}
+
+	fmt.Printf("Recording stopped; files saved to %s\n", directory)
+	_ = event.CreateMessage(discord.MessageCreate{
+		Content: "Recording stopped and I left the voice channel.",
+	})
 }

@@ -62,33 +62,37 @@ func joinUserVoiceChannel(
 	caches cache.Caches,
 	guildID snowflake.ID,
 	userID snowflake.ID,
-) error {
+) (*VoiceSession, error) {
 	voiceState, ok := caches.VoiceState(guildID, userID)
 	if !ok {
-		return fmt.Errorf("user is not in a voice channel")
+		return nil, fmt.Errorf("user is not in a voice channel")
 	}
 
 	if voiceState.ChannelID == nil {
-		return fmt.Errorf("user is not in a voice channel")
+		return nil, fmt.Errorf("user is not in a voice channel")
 	}
 
 	conn := manager.CreateConn(guildID)
+	session, err := NewVoiceSession(guildID, userID, conn)
+	if err != nil {
+		return nil, err
+	}
 
-	err := conn.Open(
+	err = conn.Open(
 		ctx,
 		*voiceState.ChannelID,
 		true,  // selfMute
 		false, // selfDeaf
 	)
 	if err != nil {
-		return err
+		session.AudioBuffer().Close()
+		_ = session.recorder.Close()
+		manager.RemoveConn(guildID)
+		return nil, err
 	}
 
-	chunkSink := discardAudioChunkSink{}
-	session := NewVoiceSession()
-	audioBuffer := NewSessionAudioBuffer(chunkSink)
-	receiver := newAudioReceiver(audioBuffer, session)
+	receiver := newAudioReceiver(session.AudioBuffer(), session)
 	conn.SetOpusFrameReceiver(receiver)
 
-	return nil
+	return session, nil
 }

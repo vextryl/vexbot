@@ -25,6 +25,7 @@ type SessionAudioBuffer struct {
 	mu       sync.Mutex
 	speakers map[snowflake.ID]*speakerBuffer
 	sink     AudioChunkSink
+	closed   bool
 }
 
 type speakerBuffer struct {
@@ -63,25 +64,25 @@ func (b *SessionAudioBuffer) flushSpeaker(userID snowflake.ID) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	speaker, ok := b.speakers[userID]
-	if !ok || len(speaker.samples) == 0 {
+	if b.closed {
 		return
 	}
 
-	b.sink.ConsumeAudioChunk(AudioChunk{
-		UserID:     userID,
-		Samples:    speaker.samples,
-		SampleRate: speaker.sampleRate,
-		Channels:   speaker.channels,
-		Timestamp:  speaker.startTime,
-	})
+	speaker, ok := b.speakers[userID]
+	if !ok {
+		return
+	}
 
-	speaker.samples = make([]int16, 0, speaker.sampleRate*speaker.channels)
+	b.flushSpeakerLocked(userID, speaker)
 }
 
 func (b *SessionAudioBuffer) ConsumeAudioFrame(frame AudioFrame) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if b.closed {
+		return
+	}
 
 	speaker, ok := b.speakers[frame.UserID]
 	if !ok {
@@ -94,7 +95,8 @@ func (b *SessionAudioBuffer) ConsumeAudioFrame(frame AudioFrame) {
 		b.speakers[frame.UserID] = speaker
 	}
 
-	samplesPerChunk := frame.SampleRate * frame.Channels
+	samplesPerChunk := frame.SampleRate * frame.Channels *
+		int(audioChunkDuration/time.Second)
 	frameTimestamp := frame.Timestamp
 
 	for len(frame.Samples) > 0 {
@@ -122,15 +124,7 @@ func (b *SessionAudioBuffer) ConsumeAudioFrame(frame AudioFrame) {
 		speaker.nextTimestamp = frameTimestamp
 
 		if len(speaker.samples) == samplesPerChunk {
-			b.sink.ConsumeAudioChunk(AudioChunk{
-				UserID:     frame.UserID,
-				Samples:    speaker.samples,
-				SampleRate: speaker.sampleRate,
-				Channels:   speaker.channels,
-				Timestamp:  speaker.startTime,
-			})
-
-			speaker.samples = make([]int16, 0, samplesPerChunk)
+			b.flushSpeakerLocked(frame.UserID, speaker)
 		}
 	}
 
@@ -158,14 +152,40 @@ func (b *SessionAudioBuffer) CleanupUser(userID snowflake.ID) {
 	delete(b.speakers, userID)
 }
 
+func (b *SessionAudioBuffer) flushSpeakerLocked(
+	userID snowflake.ID,
+	speaker *speakerBuffer,
+) {
+	if len(speaker.samples) == 0 {
+		return
+	}
+
+	b.sink.ConsumeAudioChunk(AudioChunk{
+		UserID:     userID,
+		Samples:    speaker.samples,
+		SampleRate: speaker.sampleRate,
+		Channels:   speaker.channels,
+		Timestamp:  speaker.startTime,
+	})
+
+	speaker.samples = make([]int16, 0, speaker.sampleRate*speaker.channels)
+}
+
 func (b *SessionAudioBuffer) Close() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	for _, speaker := range b.speakers {
+	if b.closed {
+		return
+	}
+
+	b.closed = true
+
+	for userID, speaker := range b.speakers {
 		if speaker.timer != nil {
 			speaker.timer.Stop()
 		}
+		b.flushSpeakerLocked(userID, speaker)
 	}
 
 	b.speakers = make(map[snowflake.ID]*speakerBuffer)
