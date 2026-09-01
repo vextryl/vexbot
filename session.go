@@ -166,10 +166,10 @@ func (m *SessionManager) StartTranscription(session StoppedSession) bool {
 				continue
 			}
 			fmt.Printf(
-				"Transcript for user %v saved to %s (%d timestamped segment(s) in %s)\n",
+				"Transcript for user %v saved to %s (%d timestamped token(s) in %s)\n",
 				recording.UserID,
 				transcription.TextPath,
-				len(transcription.Segments),
+				len(transcription.Tokens),
 				transcription.JSONPath,
 			)
 		}
