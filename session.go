@@ -160,12 +160,18 @@ func (m *SessionManager) StartTranscription(session StoppedSession) bool {
 	go func() {
 		fmt.Printf("Starting local transcription for %d recording(s)\n", len(session.Files))
 		for _, recording := range session.Files {
-			transcriptPath, err := m.transcriber.Transcribe(context.Background(), recording)
+			transcription, err := m.transcriber.Transcribe(context.Background(), recording)
 			if err != nil {
 				fmt.Printf("Error transcribing user %v: %v\n", recording.UserID, err)
 				continue
 			}
-			fmt.Printf("Transcript for user %v saved to %s\n", recording.UserID, transcriptPath)
+			fmt.Printf(
+				"Transcript for user %v saved to %s (%d timestamped segment(s) in %s)\n",
+				recording.UserID,
+				transcription.TextPath,
+				len(transcription.Segments),
+				transcription.JSONPath,
+			)
 		}
 	}()
 

@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
@@ -17,7 +19,33 @@ const (
 )
 
 type Transcriber interface {
-	Transcribe(context.Context, RecordingFile) (string, error)
+	Transcribe(context.Context, RecordingFile) (Transcription, error)
+}
+
+type Transcription struct {
+	TextPath string
+	JSONPath string
+	Segments []TranscriptionSegment
+}
+
+type TranscriptionSegment struct {
+	WAVStart time.Duration
+	WAVEnd   time.Duration
+	Text     string
+}
+
+type whisperJSONOutput struct {
+	Transcription []whisperJSONSegment `json:"transcription"`
+}
+
+type whisperJSONSegment struct {
+	Offsets whisperJSONOffsets `json:"offsets"`
+	Text    string             `json:"text"`
+}
+
+type whisperJSONOffsets struct {
+	From int64 `json:"from"`
+	To   int64 `json:"to"`
 }
 
 type whisperTranscriber struct {
@@ -67,10 +95,10 @@ func newWhisperTranscriber(
 	}, nil
 }
 
-func (t *whisperTranscriber) Transcribe(ctx context.Context, recording RecordingFile) (string, error) {
+func (t *whisperTranscriber) Transcribe(ctx context.Context, recording RecordingFile) (Transcription, error) {
 	temporaryDir, err := os.MkdirTemp("", "vexbot-whisper-*")
 	if err != nil {
-		return "", fmt.Errorf("create temporary audio directory: %w", err)
+		return Transcription{}, fmt.Errorf("create temporary audio directory: %w", err)
 	}
 	defer os.RemoveAll(temporaryDir)
 
@@ -85,7 +113,7 @@ func (t *whisperTranscriber) Transcribe(ctx context.Context, recording Recording
 		"-c:a", "pcm_s16le",
 		preparedAudio,
 	); err != nil {
-		return "", fmt.Errorf("prepare audio for user %v: %w", recording.UserID, err)
+		return Transcription{}, fmt.Errorf("prepare audio for user %v: %w", recording.UserID, err)
 	}
 
 	transcriptBase := strings.TrimSuffix(recording.Path, filepath.Ext(recording.Path))
@@ -96,12 +124,49 @@ func (t *whisperTranscriber) Transcribe(ctx context.Context, recording Recording
 		"-f", preparedAudio,
 		"-l", t.language,
 		"-otxt",
+		"-oj",
 		"-of", transcriptBase,
 	); err != nil {
-		return "", fmt.Errorf("transcribe audio for user %v: %w", recording.UserID, err)
+		return Transcription{}, fmt.Errorf("transcribe audio for user %v: %w", recording.UserID, err)
 	}
 
-	return transcriptBase + ".txt", nil
+	jsonPath := transcriptBase + ".json"
+	contents, err := os.ReadFile(jsonPath)
+	if err != nil {
+		return Transcription{}, fmt.Errorf("read transcription JSON for user %v: %w", recording.UserID, err)
+	}
+	segments, err := parseWhisperJSON(contents)
+	if err != nil {
+		return Transcription{}, fmt.Errorf("parse transcription JSON for user %v: %w", recording.UserID, err)
+	}
+
+	return Transcription{
+		TextPath: transcriptBase + ".txt",
+		JSONPath: jsonPath,
+		Segments: segments,
+	}, nil
+}
+
+func parseWhisperJSON(contents []byte) ([]TranscriptionSegment, error) {
+	var output whisperJSONOutput
+	if err := json.Unmarshal(contents, &output); err != nil {
+		return nil, err
+	}
+
+	segments := make([]TranscriptionSegment, 0, len(output.Transcription))
+	for index, segment := range output.Transcription {
+		if segment.Offsets.From < 0 || segment.Offsets.To < segment.Offsets.From {
+			return nil, fmt.Errorf("segment %d has invalid offsets", index)
+		}
+
+		segments = append(segments, TranscriptionSegment{
+			WAVStart: time.Duration(segment.Offsets.From) * time.Millisecond,
+			WAVEnd:   time.Duration(segment.Offsets.To) * time.Millisecond,
+			Text:     strings.TrimSpace(segment.Text),
+		})
+	}
+
+	return segments, nil
 }
 
 func runCommand(ctx context.Context, name string, args ...string) error {
