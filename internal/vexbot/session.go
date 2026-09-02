@@ -9,7 +9,10 @@ import (
 	"github.com/disgoorg/disgo/voice"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/vextryl/vexbot/internal/audio"
+	"github.com/vextryl/vexbot/internal/transcript"
+	"github.com/vextryl/vexbot/internal/turn"
 	"github.com/vextryl/vexbot/internal/wav"
+	"github.com/vextryl/vexbot/internal/whisper"
 )
 
 type VoiceSession struct {
@@ -82,10 +85,10 @@ type SessionManager struct {
 	mu          sync.Mutex
 	sessions    map[snowflake.ID]*VoiceSession
 	starting    map[snowflake.ID]struct{}
-	transcriber Transcriber
+	transcriber whisper.Transcriber
 }
 
-func NewSessionManager(transcriber Transcriber) *SessionManager {
+func NewSessionManager(transcriber whisper.Transcriber) *SessionManager {
 	return &SessionManager{
 		sessions:    make(map[snowflake.ID]*VoiceSession),
 		starting:    make(map[snowflake.ID]struct{}),
@@ -162,7 +165,7 @@ func (m *SessionManager) StartTranscription(session StoppedSession) bool {
 
 	go func() {
 		nextProgressPercent := 10
-		results, err := transcribeRecordingTurns(
+		results, err := turn.Transcribe(
 			context.Background(),
 			session.Directory,
 			session.Files,
@@ -170,7 +173,7 @@ func (m *SessionManager) StartTranscription(session StoppedSession) bool {
 			func(total int) {
 				fmt.Printf("Starting local transcription for %d turn(s)\n", total)
 			},
-			func(completed, total int, result TurnTranscription) {
+			func(completed, total int, result turn.Result) {
 				if result.Err != nil {
 					fmt.Printf("Error transcribing turn %d for user %s: %v\n", completed, result.Turn.UserID, result.Err)
 				}
@@ -196,7 +199,7 @@ func (m *SessionManager) StartTranscription(session StoppedSession) bool {
 		}
 		fmt.Printf("Local transcription finished: %d succeeded, %d failed\n", len(results)-failed, failed)
 
-		transcriptPath, lineCount, err := writeCombinedTranscript(session.Directory, session.DisplayNames, results)
+		transcriptPath, lineCount, err := transcript.Write(session.Directory, session.DisplayNames, results)
 		if err != nil {
 			fmt.Printf("Error writing combined transcript: %v\n", err)
 			return

@@ -6,6 +6,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/vextryl/vexbot/internal/speaker"
+	"github.com/vextryl/vexbot/internal/wav"
 )
 
 type testMemberLookup map[snowflake.ID]discord.Member
@@ -22,7 +23,7 @@ func TestSnapshotDisplayNamesUsesEffectiveNameAndIDFallback(t *testing.T) {
 			User: discord.User{ID: 42, Username: "username"},
 		},
 	}
-	names := snapshotDisplayNames(lookup, 7, []RecordingFile{
+	names := snapshotDisplayNames(lookup, 7, []wav.File{
 		{UserID: 42},
 		{UserID: 99},
 	})

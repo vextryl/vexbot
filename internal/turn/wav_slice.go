@@ -1,4 +1,4 @@
-package vexbot
+package turn
 
 import (
 	"encoding/binary"
@@ -17,9 +17,9 @@ type pcmWAVFormat struct {
 	DataBytes  uint32
 }
 
-// extractTurnWAV writes a temporary PCM WAV containing exactly one
+// extractWAV writes a temporary PCM WAV containing exactly one
 // transcription turn. temporaryDir is owned and cleaned up by the caller.
-func extractTurnWAV(temporaryDir, sourcePath string, turn transcriptionTurn) (string, error) {
+func extractWAV(temporaryDir, sourcePath string, turn Turn) (string, error) {
 	source, err := os.Open(sourcePath)
 	if err != nil {
 		return "", fmt.Errorf("open source WAV: %w", err)

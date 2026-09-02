@@ -1,4 +1,4 @@
-package vexbot
+package turn
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/vextryl/vexbot/internal/wav"
+	"github.com/vextryl/vexbot/internal/whisper"
 )
 
 type recordingTranscriber struct {
@@ -17,23 +19,23 @@ type recordingTranscriber struct {
 	previousPath string
 }
 
-func (t *recordingTranscriber) Transcribe(_ context.Context, recording RecordingFile) (Transcription, error) {
+func (t *recordingTranscriber) Transcribe(_ context.Context, recording wav.File) (whisper.Transcription, error) {
 	if t.previousPath != "" {
 		if _, err := os.Stat(t.previousPath); !os.IsNotExist(err) {
-			return Transcription{}, fmt.Errorf("previous temporary WAV still exists: %w", err)
+			return whisper.Transcription{}, fmt.Errorf("previous temporary WAV still exists: %w", err)
 		}
 	}
 	contents, err := os.ReadFile(recording.Path)
 	if err != nil {
-		return Transcription{}, err
+		return whisper.Transcription{}, err
 	}
 	t.paths = append(t.paths, recording.Path)
 	t.previousPath = recording.Path
-	return Transcription{
+	return whisper.Transcription{
 		TextPath: recording.Path + ".txt",
 		JSONPath: recording.Path + ".json",
-		Tokens: []TranscriptionToken{{
-			Text:     string(contents[wavHeaderSize:]),
+		Tokens: []whisper.TranscriptionToken{{
+			Text:     string(contents[wav.HeaderSize:]),
 			WAVStart: 0,
 			WAVEnd:   time.Millisecond,
 		}},
@@ -43,9 +45,9 @@ func (t *recordingTranscriber) Transcribe(_ context.Context, recording Recording
 func TestTranscribeRecordingTurnsUsesTemporaryTurnWAVs(t *testing.T) {
 	dir := t.TempDir()
 	writeTestPCM16WAV(t, filepath.Join(dir, "42.wav"), 1000, 1, []int16{10, 20, 30, 40, 50, 60})
-	timelineContents, err := json.Marshal(sessionTimeline{
+	timelineContents, err := json.Marshal(wav.Timeline{
 		Version: 1,
-		Spans: []timelineSpan{
+		Spans: []wav.Span{
 			{UserID: "42", SessionStartMS: 100, SessionEndMS: 102, WAVStartMS: 0, WAVEndMS: 2},
 			{UserID: "42", SessionStartMS: 3000, SessionEndMS: 3003, WAVStartMS: 2, WAVEndMS: 5},
 		},
@@ -53,19 +55,19 @@ func TestTranscribeRecordingTurnsUsesTemporaryTurnWAVs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, timelineFileName), timelineContents, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, wav.TimelineFileName), timelineContents, 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
 	transcriber := &recordingTranscriber{}
 	started := 0
 	progress := make([]int, 0)
-	results, err := transcribeRecordingTurns(context.Background(), dir, []RecordingFile{{
+	results, err := Transcribe(context.Background(), dir, []wav.File{{
 		UserID: snowflake.ID(42),
 		Path:   filepath.Join(dir, "42.wav"),
 	}}, transcriber, func(total int) {
 		started = total
-	}, func(completed, _ int, _ TurnTranscription) {
+	}, func(completed, _ int, _ Result) {
 		progress = append(progress, completed)
 	})
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/joho/godotenv"
+	"github.com/vextryl/vexbot/internal/whisper"
 )
 
 func Run() {
@@ -37,7 +38,7 @@ func Run() {
 		return
 	}
 
-	transcriber, err := newWhisperTranscriberFromEnv()
+	transcriber, err := whisper.NewWhisperTranscriberFromEnv()
 	if err != nil {
 		fmt.Println("Error configuring local transcription:", err)
 		return

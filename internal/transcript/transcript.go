@@ -9,17 +9,10 @@ import (
 	"time"
 
 	"github.com/vextryl/vexbot/internal/speaker"
+	"github.com/vextryl/vexbot/internal/turn"
 )
 
 const combinedTranscriptFileName = "transcript.txt"
-
-type Entry struct {
-	UserID       string
-	SessionStart time.Duration
-	SessionEnd   time.Duration
-	Text         string
-	Err          error
-}
 
 type line struct {
 	UserID       string
@@ -28,8 +21,8 @@ type line struct {
 	Text         string
 }
 
-func Write(directory string, displayNames map[string]string, entries []Entry) (string, int, error) {
-	lines := buildLines(entries)
+func Write(directory string, displayNames map[string]string, results []turn.Result) (string, int, error) {
+	lines := buildLines(results)
 
 	var output strings.Builder
 	for _, line := range lines {
@@ -50,37 +43,41 @@ func Write(directory string, displayNames map[string]string, entries []Entry) (s
 	return path, len(lines), nil
 }
 
-func buildLines(entries []Entry) []line {
+func buildLines(results []turn.Result) []line {
 	type candidateLine struct {
 		line
 		blankAudio bool
 	}
 
-	candidates := make([]candidateLine, 0, len(entries))
-	for _, entry := range entries {
-		if entry.Err != nil {
+	candidates := make([]candidateLine, 0, len(results))
+	for _, result := range results {
+		if result.Err != nil {
 			candidates = append(candidates, candidateLine{line: line{
-				UserID:       entry.UserID,
-				SessionStart: entry.SessionStart,
-				SessionEnd:   entry.SessionEnd,
+				UserID:       result.Turn.UserID,
+				SessionStart: result.Turn.SessionStart,
+				SessionEnd:   result.Turn.SessionEnd,
 			}})
 			continue
 		}
 
-		value := strings.TrimSpace(entry.Text)
+		var text strings.Builder
+		for _, token := range result.Transcription.Tokens {
+			text.WriteString(token.Text)
+		}
+		value := strings.TrimSpace(text.String())
 		if value == "" {
 			candidates = append(candidates, candidateLine{line: line{
-				UserID:       entry.UserID,
-				SessionStart: entry.SessionStart,
-				SessionEnd:   entry.SessionEnd,
+				UserID:       result.Turn.UserID,
+				SessionStart: result.Turn.SessionStart,
+				SessionEnd:   result.Turn.SessionEnd,
 			}})
 			continue
 		}
 		candidates = append(candidates, candidateLine{
 			line: line{
-				UserID:       entry.UserID,
-				SessionStart: entry.SessionStart,
-				SessionEnd:   entry.SessionEnd,
+				UserID:       result.Turn.UserID,
+				SessionStart: result.Turn.SessionStart,
+				SessionEnd:   result.Turn.SessionEnd,
 				Text:         value,
 			},
 			blankAudio: strings.EqualFold(value, "[BLANK_AUDIO]"),

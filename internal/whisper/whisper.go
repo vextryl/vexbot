@@ -1,4 +1,4 @@
-package vexbot
+package whisper
 
 import (
 	"context"
@@ -74,7 +74,7 @@ type whisperTranscriber struct {
 	language  string
 }
 
-func newWhisperTranscriberFromEnv() (*whisperTranscriber, error) {
+func NewWhisperTranscriberFromEnv() (*whisperTranscriber, error) {
 	return newWhisperTranscriber(
 		os.Getenv(whisperCLIPathEnv),
 		os.Getenv(whisperModelPathEnv),

@@ -1,14 +1,16 @@
-package vexbot
+package turn
 
 import (
 	"testing"
 	"time"
+
+	"github.com/vextryl/vexbot/internal/wav"
 )
 
 func TestBuildTranscriptionTurnsGroupsNearbySpans(t *testing.T) {
-	timeline := sessionTimeline{
+	timeline := wav.Timeline{
 		Version: 1,
-		Spans: []timelineSpan{
+		Spans: []wav.Span{
 			{UserID: "alex", SessionStartMS: 10000, SessionEndMS: 11000, WAVStartMS: 1000, WAVEndMS: 2000},
 			{UserID: "sam", SessionStartMS: 1500, SessionEndMS: 2500, WAVStartMS: 0, WAVEndMS: 1000},
 			{UserID: "alex", SessionStartMS: 5000, SessionEndMS: 6000, WAVStartMS: 0, WAVEndMS: 1000},
@@ -17,8 +19,8 @@ func TestBuildTranscriptionTurnsGroupsNearbySpans(t *testing.T) {
 		},
 	}
 
-	got := buildTranscriptionTurns(timeline)
-	want := []transcriptionTurn{
+	got := Build(timeline)
+	want := []Turn{
 		{UserID: "sam", SessionStart: 1500 * time.Millisecond, SessionEnd: 2500 * time.Millisecond, WAVStart: 0, WAVEnd: time.Second},
 		{UserID: "alex", SessionStart: 5 * time.Second, SessionEnd: 6 * time.Second, WAVStart: 0, WAVEnd: time.Second},
 		{UserID: "alex", SessionStart: 10 * time.Second, SessionEnd: 13100 * time.Millisecond, WAVStart: time.Second, WAVEnd: 3 * time.Second},

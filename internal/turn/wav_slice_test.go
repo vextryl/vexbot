@@ -1,4 +1,4 @@
-package vexbot
+package turn
 
 import (
 	"encoding/binary"
@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/vextryl/vexbot/internal/wav"
 )
 
 func TestExtractTurnWAV(t *testing.T) {
@@ -17,13 +19,13 @@ func TestExtractTurnWAV(t *testing.T) {
 	if err := os.Mkdir(temporaryDir, 0o755); err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
-	path, err := extractTurnWAV(temporaryDir, sourcePath, transcriptionTurn{
+	path, err := extractWAV(temporaryDir, sourcePath, Turn{
 		UserID:   "42",
 		WAVStart: 2 * time.Millisecond,
 		WAVEnd:   5 * time.Millisecond,
 	})
 	if err != nil {
-		t.Fatalf("extractTurnWAV() error = %v", err)
+		t.Fatalf("extractWAV() error = %v", err)
 	}
 	if filepath.Dir(path) != temporaryDir {
 		t.Fatalf("temporary path directory = %q, want %q", filepath.Dir(path), temporaryDir)
@@ -37,7 +39,7 @@ func TestExtractTurnWAV(t *testing.T) {
 		t.Fatalf("data size = %d, want %d", got, want)
 	}
 	for index, want := range []int16{30, 40, 50} {
-		got := int16(binary.LittleEndian.Uint16(contents[wavHeaderSize+index*wavSampleBytes:]))
+		got := int16(binary.LittleEndian.Uint16(contents[wav.HeaderSize+index*wav.SampleBytes:]))
 		if got != want {
 			t.Fatalf("sample %d = %d, want %d", index, got, want)
 		}
@@ -49,12 +51,12 @@ func TestExtractTurnWAVRejectsOutOfRangeAudio(t *testing.T) {
 	sourcePath := filepath.Join(dir, "speaker.wav")
 	writeTestPCM16WAV(t, sourcePath, 1000, 1, []int16{10, 20})
 
-	if _, err := extractTurnWAV(dir, sourcePath, transcriptionTurn{
+	if _, err := extractWAV(dir, sourcePath, Turn{
 		UserID:   "42",
 		WAVStart: 1 * time.Millisecond,
 		WAVEnd:   3 * time.Millisecond,
 	}); err == nil {
-		t.Fatal("extractTurnWAV() error = nil, want range error")
+		t.Fatal("extractWAV() error = nil, want range error")
 	}
 }
 
@@ -66,11 +68,11 @@ func writeTestPCM16WAV(t *testing.T, path string, sampleRate uint32, channels ui
 	}
 	defer file.Close()
 
-	if err := writePCM16WAVHeader(file, sampleRate, channels, uint32(len(samples)*wavSampleBytes)); err != nil {
+	if err := writePCM16WAVHeader(file, sampleRate, channels, uint32(len(samples)*wav.SampleBytes)); err != nil {
 		t.Fatalf("writePCM16WAVHeader() error = %v", err)
 	}
 	for _, sample := range samples {
-		var bytes [wavSampleBytes]byte
+		var bytes [wav.SampleBytes]byte
 		binary.LittleEndian.PutUint16(bytes[:], uint16(sample))
 		if _, err := file.Write(bytes[:]); err != nil {
 			t.Fatalf("Write() error = %v", err)

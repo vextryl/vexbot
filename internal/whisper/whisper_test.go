@@ -1,4 +1,4 @@
-package vexbot
+package whisper
 
 import (
 	"testing"

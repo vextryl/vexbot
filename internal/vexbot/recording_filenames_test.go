@@ -8,11 +8,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/vextryl/vexbot/internal/wav"
 )
 
 func TestRenameRecordingFilesUsesSafeDisplayNames(t *testing.T) {
 	dir := t.TempDir()
-	files := []RecordingFile{
+	files := []wav.File{
 		{UserID: snowflake.ID(42), Path: filepath.Join(dir, "42.wav")},
 		{UserID: snowflake.ID(99), Path: filepath.Join(dir, "99.wav")},
 		{UserID: snowflake.ID(100), Path: filepath.Join(dir, "100.wav")},

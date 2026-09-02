@@ -1,4 +1,4 @@
-package vexbot
+package turn
 
 import (
 	"context"
@@ -9,25 +9,27 @@ import (
 	"path/filepath"
 
 	"github.com/vextryl/vexbot/internal/wav"
+	"github.com/vextryl/vexbot/internal/whisper"
 )
 
-type TurnTranscription struct {
-	Turn          transcriptionTurn
-	Transcription Transcription
+// Result contains the transcription outcome for one turn.
+type Result struct {
+	Turn          Turn
+	Transcription whisper.Transcription
 	Err           error
 }
 
-// transcribeRecordingTurns extracts and transcribes each speaker turn. Its
+// Transcribe extracts and transcribes each speaker turn. Its
 // returned transcriptions contain parsed Whisper data only: the temporary
 // text and JSON sidecar paths are removed before this function returns.
-func transcribeRecordingTurns(
+func Transcribe(
 	ctx context.Context,
 	directory string,
 	recordings []wav.File,
-	transcriber Transcriber,
+	transcriber whisper.Transcriber,
 	onStart func(total int),
-	onProgress func(completed, total int, result TurnTranscription),
-) ([]TurnTranscription, error) {
+	onProgress func(completed, total int, result Result),
+) ([]Result, error) {
 	contents, err := os.ReadFile(filepath.Join(directory, wav.TimelineFileName))
 	if err != nil {
 		return nil, fmt.Errorf("read session timeline: %w", err)
@@ -52,19 +54,19 @@ func transcribeRecordingTurns(
 	}
 	defer os.RemoveAll(temporaryDir)
 
-	turns := buildTranscriptionTurns(timeline)
+	turns := Build(timeline)
 	if onStart != nil {
 		onStart(len(turns))
 	}
-	results := make([]TurnTranscription, 0, len(turns))
-	complete := func(result TurnTranscription) {
+	results := make([]Result, 0, len(turns))
+	complete := func(result Result) {
 		results = append(results, result)
 		if onProgress != nil {
 			onProgress(len(results), len(turns), result)
 		}
 	}
 	for _, turn := range turns {
-		result := TurnTranscription{Turn: turn}
+		result := Result{Turn: turn}
 		recording, ok := recordingsByUser[turn.UserID]
 		if !ok {
 			result.Err = fmt.Errorf("find recording for user %s", turn.UserID)
@@ -72,7 +74,7 @@ func transcribeRecordingTurns(
 			continue
 		}
 
-		temporaryWAV, err := extractTurnWAV(temporaryDir, recording.Path, turn)
+		temporaryWAV, err := extractWAV(temporaryDir, recording.Path, turn)
 		if err != nil {
 			result.Err = fmt.Errorf("extract audio: %w", err)
 			complete(result)
