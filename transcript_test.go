@@ -35,9 +35,33 @@ func TestBuildTranscriptLinesRestoresSessionOrder(t *testing.T) {
 		t.Fatalf("line count = %d, want 3", len(lines))
 	}
 	want := []transcriptLine{
-		{UserID: "alex", SessionStart: time.Second, Text: "Hello there."},
-		{UserID: "sam", SessionStart: 2500 * time.Millisecond, Text: "Hi."},
-		{UserID: "alex", SessionStart: 5 * time.Second, Text: "Again."},
+		{UserID: "alex", SessionStart: time.Second, SessionEnd: 2 * time.Second, Text: "Hello there."},
+		{UserID: "sam", SessionStart: 2500 * time.Millisecond, SessionEnd: 3500 * time.Millisecond, Text: "Hi."},
+		{UserID: "alex", SessionStart: 5 * time.Second, SessionEnd: 6 * time.Second, Text: "Again."},
+	}
+	for index := range want {
+		if lines[index] != want[index] {
+			t.Fatalf("line %d = %#v, want %#v", index, lines[index], want[index])
+		}
+	}
+}
+
+func TestMergeTranscriptContinuations(t *testing.T) {
+	lines := mergeTranscriptContinuations([]transcriptLine{
+		{UserID: "alex", SessionStart: time.Second, SessionEnd: 2 * time.Second, Text: "Hate that that"},
+		{UserID: "sam", SessionStart: 1500 * time.Millisecond, SessionEnd: 2 * time.Second, Text: "Overlapping reply."},
+		{UserID: "alex", SessionStart: 3 * time.Second, SessionEnd: 4 * time.Second, Text: "'s on the test"},
+		{UserID: "alex", SessionStart: 4500 * time.Millisecond, SessionEnd: 5 * time.Second, Text: "."},
+		{UserID: "alex", SessionStart: 6 * time.Second, SessionEnd: 7 * time.Second, Text: "A new sentence."},
+	})
+
+	want := []transcriptLine{
+		{UserID: "alex", SessionStart: time.Second, SessionEnd: 5 * time.Second, Text: "Hate that that's on the test."},
+		{UserID: "sam", SessionStart: 1500 * time.Millisecond, SessionEnd: 2 * time.Second, Text: "Overlapping reply."},
+		{UserID: "alex", SessionStart: 6 * time.Second, SessionEnd: 7 * time.Second, Text: "A new sentence."},
+	}
+	if len(lines) != len(want) {
+		t.Fatalf("line count = %d, want %d", len(lines), len(want))
 	}
 	for index := range want {
 		if lines[index] != want[index] {
