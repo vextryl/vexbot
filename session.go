@@ -122,8 +122,9 @@ func (m *SessionManager) CancelReservation(guildID snowflake.ID) {
 }
 
 type StoppedSession struct {
-	Directory string
-	Files     []RecordingFile
+	Directory    string
+	Files        []RecordingFile
+	DisplayNames map[string]string
 }
 
 func (m *SessionManager) Stop(ctx context.Context, guildID, userID snowflake.ID) (StoppedSession, error) {
@@ -184,7 +185,7 @@ func (m *SessionManager) StartTranscription(session StoppedSession) bool {
 			)
 		}
 
-		transcriptPath, lineCount, err := writeCombinedTranscript(session.Directory, results)
+		transcriptPath, lineCount, err := writeCombinedTranscript(session.Directory, session.DisplayNames, results)
 		if err != nil {
 			fmt.Printf("Error writing combined transcript: %v\n", err)
 			return

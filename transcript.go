@@ -18,7 +18,7 @@ type transcriptLine struct {
 	Text         string
 }
 
-func writeCombinedTranscript(directory string, results []TurnTranscription) (string, int, error) {
+func writeCombinedTranscript(directory string, displayNames map[string]string, results []TurnTranscription) (string, int, error) {
 	lines := buildTranscriptLines(results)
 
 	var output strings.Builder
@@ -27,7 +27,7 @@ func writeCombinedTranscript(directory string, results []TurnTranscription) (str
 			&output,
 			"[%s] %s: %s\n",
 			formatTranscriptTimestamp(line.SessionStart),
-			line.UserID,
+			displayNameForUser(line.UserID, displayNames),
 			line.Text,
 		)
 	}

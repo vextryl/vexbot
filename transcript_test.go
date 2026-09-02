@@ -42,7 +42,7 @@ func TestBuildTranscriptLinesOrdersSuccessfulTurns(t *testing.T) {
 
 func TestWriteCombinedTranscript(t *testing.T) {
 	dir := t.TempDir()
-	path, lineCount, err := writeCombinedTranscript(dir, []TurnTranscription{
+	path, lineCount, err := writeCombinedTranscript(dir, map[string]string{"42": "Mörk 🐉"}, []TurnTranscription{
 		{
 			Turn:          transcriptionTurn{UserID: "42", SessionStart: 62 * time.Second, SessionEnd: 63 * time.Second},
 			Transcription: Transcription{Tokens: []TranscriptionToken{{Text: " Hello."}}},
@@ -58,7 +58,7 @@ func TestWriteCombinedTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(transcript.txt) error = %v", err)
 	}
-	if got, want := string(contents), "[01:02] 42: Hello.\n"; got != want {
+	if got, want := string(contents), "[01:02] Mörk 🐉: Hello.\n"; got != want {
 		t.Fatalf("transcript = %q, want %q", got, want)
 	}
 }

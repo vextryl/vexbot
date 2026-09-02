@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/cache"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/voice"
@@ -24,7 +25,7 @@ func onApplicationCommandInteraction(
 		handleJoin(event, client, voiceManager, sessions)
 
 	case "stop":
-		handleStop(event, sessions)
+		handleStop(event, client.Caches, sessions)
 	}
 }
 
@@ -87,7 +88,7 @@ func handleJoin(
 	}()
 }
 
-func handleStop(event *events.ApplicationCommandInteractionCreate, sessions *SessionManager) {
+func handleStop(event *events.ApplicationCommandInteractionCreate, caches cache.Caches, sessions *SessionManager) {
 	guildID := event.GuildID()
 	if guildID == nil {
 		_ = event.CreateMessage(discord.MessageCreate{
@@ -103,6 +104,7 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, sessions *Ses
 		})
 		return
 	}
+	session.DisplayNames = snapshotDisplayNames(caches, *guildID, session.Files)
 
 	fmt.Printf("Recording stopped; files saved to %s\n", session.Directory)
 	message := "Recording stopped and I left the voice channel."
