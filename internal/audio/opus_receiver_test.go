@@ -7,7 +7,7 @@ import (
 )
 
 func TestAudioReceiverDropsUnknownSpeakerPackets(t *testing.T) {
-	receiver := NewOpusReceiver(nil, nil)
+	receiver := NewOpusReceiver(nil, nil, nil)
 
 	if err := receiver.ReceiveOpusFrame(0, &voice.Packet{}); err != nil {
 		t.Fatalf("ReceiveOpusFrame() error = %v", err)

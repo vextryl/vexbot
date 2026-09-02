@@ -39,7 +39,7 @@ func BotUserIDFromToken(token string) (snowflake.ID, error) {
 
 // NewVoiceManager creates the Discord voice manager used by VexBot.
 func NewVoiceManager(
-	updateVoiceState func(context.Context, snowflake.ID, *snowflake.ID, bool, bool) error, userID snowflake.ID,
+	updateVoiceState func(context.Context, snowflake.ID, *snowflake.ID, bool, bool) error, userID snowflake.ID, logger *slog.Logger,
 ) voice.Manager {
 	return voice.NewManager(
 		func(
@@ -58,7 +58,7 @@ func NewVoiceManager(
 			)
 		},
 		userID,
-		voice.WithLogger(dave.NewRateLimitedLogger(slog.Default())),
+		voice.WithLogger(dave.NewRateLimitedLogger(logger)),
 		voice.WithDaveSessionCreateFunc(dave.NewSession),
 	)
 }
@@ -71,6 +71,7 @@ func JoinUserVoiceChannel(
 	caches cache.Caches,
 	guildID snowflake.ID,
 	userID snowflake.ID,
+	logger *slog.Logger,
 ) (*session.Session, error) {
 	voiceState, ok := caches.VoiceState(guildID, userID)
 	if !ok {
@@ -82,7 +83,7 @@ func JoinUserVoiceChannel(
 	}
 
 	conn := manager.CreateConn(guildID)
-	voiceSession, err := session.New(guildID, userID, conn)
+	voiceSession, err := session.New(guildID, userID, conn, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +100,7 @@ func JoinUserVoiceChannel(
 		return nil, err
 	}
 
-	receiver := audio.NewOpusReceiver(voiceSession.AudioBuffer(), voiceSession)
+	receiver := audio.NewOpusReceiver(voiceSession.AudioBuffer(), voiceSession, logger)
 	conn.SetOpusFrameReceiver(receiver)
 
 	return voiceSession, nil

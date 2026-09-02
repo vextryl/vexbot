@@ -2,6 +2,7 @@ package audio
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -29,17 +30,19 @@ type audioReceiver struct {
 	decoders map[snowflake.ID]*decoderState
 	sink     FrameSink
 	clock    Clock
+	logger   *slog.Logger
 }
 
 type Clock interface {
 	Timestamp() time.Duration
 }
 
-func NewOpusReceiver(sink FrameSink, clock Clock) *audioReceiver {
+func NewOpusReceiver(sink FrameSink, clock Clock, logger *slog.Logger) *audioReceiver {
 	return &audioReceiver{
 		decoders: make(map[snowflake.ID]*decoderState),
 		sink:     sink,
 		clock:    clock,
+		logger:   logger,
 	}
 }
 
@@ -135,7 +138,9 @@ func (r *audioReceiver) decoderState(userID snowflake.ID) (*decoderState, error)
 
 	r.decoders[userID] = state
 
-	fmt.Printf("AUDIO: created decoder for user=%v\n", userID)
+	if r.logger != nil {
+		r.logger.Info("created Opus decoder", slog.String("user_id", userID.String()))
+	}
 
 	return state, nil
 }
@@ -146,7 +151,9 @@ func (r *audioReceiver) CleanupUser(userID snowflake.ID) {
 
 	delete(r.decoders, userID)
 
-	fmt.Printf("AUDIO: cleaned up decoder for user=%v\n", userID)
+	if r.logger != nil {
+		r.logger.Debug("cleaned up Opus decoder", slog.String("user_id", userID.String()))
+	}
 }
 
 func (r *audioReceiver) Close() {
@@ -155,5 +162,7 @@ func (r *audioReceiver) Close() {
 
 	r.decoders = make(map[snowflake.ID]*decoderState)
 
-	fmt.Println("AUDIO: receiver closed")
+	if r.logger != nil {
+		r.logger.Info("audio receiver closed")
+	}
 }

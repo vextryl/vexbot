@@ -5,6 +5,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -28,7 +29,7 @@ type Session struct {
 	stopped   bool
 }
 
-func New(guildID, ownerID snowflake.ID, conn voice.Conn) (*Session, error) {
+func New(guildID, ownerID snowflake.ID, conn voice.Conn, logger *slog.Logger) (*Session, error) {
 	startedAt := time.Now()
 	recorder, err := wav.NewRecorder(guildID, startedAt)
 	if err != nil {
@@ -41,7 +42,7 @@ func New(guildID, ownerID snowflake.ID, conn voice.Conn) (*Session, error) {
 		ownerID:   ownerID,
 		conn:      conn,
 		recorder:  recorder,
-		buffer:    audio.NewSegmentBuffer(recorder),
+		buffer:    audio.NewSegmentBuffer(recorder, logger),
 	}, nil
 }
 
@@ -106,13 +107,15 @@ type Manager struct {
 	sessions    map[snowflake.ID]*Session
 	starting    map[snowflake.ID]struct{}
 	transcriber whisper.Transcriber
+	logger      *slog.Logger
 }
 
-func NewManager(transcriber whisper.Transcriber) *Manager {
+func NewManager(transcriber whisper.Transcriber, logger *slog.Logger) *Manager {
 	return &Manager{
 		sessions:    make(map[snowflake.ID]*Session),
 		starting:    make(map[snowflake.ID]struct{}),
 		transcriber: transcriber,
+		logger:      logger,
 	}
 }
 
@@ -147,6 +150,7 @@ func (m *Manager) CancelReservation(guildID snowflake.ID) {
 }
 
 type StoppedRecording struct {
+	GuildID      snowflake.ID
 	Directory    string
 	Files        []wav.File
 	DisplayNames map[string]string
@@ -173,6 +177,7 @@ func (m *Manager) Stop(ctx context.Context, guildID, userID snowflake.ID) (Stopp
 	m.mu.Unlock()
 
 	return StoppedRecording{
+		GuildID:   guildID,
 		Directory: session.RecorderDirectory(),
 		Files:     session.RecordingFiles(),
 	}, nil
@@ -191,15 +196,30 @@ func (m *Manager) StartTranscription(session StoppedRecording) bool {
 			session.Files,
 			m.transcriber,
 			func(total int) {
-				fmt.Printf("Starting local transcription for %d turn(s)\n", total)
+				m.logInfo("starting local transcription",
+					slog.String("guild_id", session.GuildID.String()),
+					slog.String("directory", session.Directory),
+					slog.Int("total_turns", total),
+				)
 			},
 			func(completed, total int, result turn.Result) {
 				if result.Err != nil {
-					fmt.Printf("Error transcribing turn %d for user %s: %v\n", completed, result.Turn.UserID, result.Err)
+					m.logError("transcribing turn",
+						"err", result.Err,
+						slog.String("guild_id", session.GuildID.String()),
+						slog.String("user_id", result.Turn.UserID),
+						slog.Int("completed_turns", completed),
+						slog.Int("total_turns", total),
+					)
 				}
 				percent := completed * 100 / total
 				if percent >= nextProgressPercent || completed == total {
-					fmt.Printf("Local transcription progress: %d%% (%d/%d turns)\n", percent, completed, total)
+					m.logInfo("local transcription progress",
+						slog.String("guild_id", session.GuildID.String()),
+						slog.Int("percent", percent),
+						slog.Int("completed_turns", completed),
+						slog.Int("total_turns", total),
+					)
 					for nextProgressPercent <= percent {
 						nextProgressPercent += 10
 					}
@@ -207,7 +227,11 @@ func (m *Manager) StartTranscription(session StoppedRecording) bool {
 			},
 		)
 		if err != nil {
-			fmt.Printf("Error preparing local transcription: %v\n", err)
+			m.logError("preparing local transcription",
+				"err", err,
+				slog.String("guild_id", session.GuildID.String()),
+				slog.String("directory", session.Directory),
+			)
 			return
 		}
 
@@ -217,17 +241,41 @@ func (m *Manager) StartTranscription(session StoppedRecording) bool {
 				failed++
 			}
 		}
-		fmt.Printf("Local transcription finished: %d succeeded, %d failed\n", len(results)-failed, failed)
+		m.logInfo("local transcription finished",
+			slog.String("guild_id", session.GuildID.String()),
+			slog.Int("succeeded_turns", len(results)-failed),
+			slog.Int("failed_turns", failed),
+		)
 
 		transcriptPath, lineCount, err := transcript.Write(session.Directory, session.DisplayNames, results)
 		if err != nil {
-			fmt.Printf("Error writing combined transcript: %v\n", err)
+			m.logError("writing combined transcript",
+				"err", err,
+				slog.String("guild_id", session.GuildID.String()),
+				slog.String("directory", session.Directory),
+			)
 			return
 		}
-		fmt.Printf("Combined transcript saved to %s (%d line(s))\n", transcriptPath, lineCount)
+		m.logInfo("combined transcript saved",
+			slog.String("guild_id", session.GuildID.String()),
+			slog.String("path", transcriptPath),
+			slog.Int("line_count", lineCount),
+		)
 	}()
 
 	return true
+}
+
+func (m *Manager) logInfo(message string, args ...any) {
+	if m.logger != nil {
+		m.logger.Info(message, args...)
+	}
+}
+
+func (m *Manager) logError(message string, args ...any) {
+	if m.logger != nil {
+		m.logger.Error(message, args...)
+	}
 }
 
 func (m *Manager) Close(ctx context.Context) error {

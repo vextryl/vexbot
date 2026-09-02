@@ -1,7 +1,7 @@
 package audio
 
 import (
-	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -26,6 +26,7 @@ type SegmentBuffer struct {
 	mu       sync.Mutex
 	speakers map[snowflake.ID]*speakerBuffer
 	sink     ChunkSink
+	logger   *slog.Logger
 	closed   bool
 }
 
@@ -44,20 +45,13 @@ type ChunkSink interface {
 
 type discardAudioChunkSink struct{}
 
-func (discardAudioChunkSink) ConsumeChunk(chunk Chunk) {
-	fmt.Printf(
-		"AUDIO: user=%v chunk=%.1fs timestamp=%.1fs\n",
-		chunk.UserID,
-		float64(len(chunk.Samples))/
-			float64(chunk.SampleRate*chunk.Channels),
-		chunk.Timestamp.Seconds(),
-	)
-}
+func (discardAudioChunkSink) ConsumeChunk(Chunk) {}
 
-func NewSegmentBuffer(sink ChunkSink) *SegmentBuffer {
+func NewSegmentBuffer(sink ChunkSink, logger *slog.Logger) *SegmentBuffer {
 	return &SegmentBuffer{
 		speakers: make(map[snowflake.ID]*speakerBuffer),
 		sink:     sink,
+		logger:   logger,
 	}
 }
 
@@ -207,5 +201,7 @@ func (b *SegmentBuffer) Close() {
 
 	b.speakers = make(map[snowflake.ID]*speakerBuffer)
 
-	fmt.Println("AUDIO: session buffer closed")
+	if b.logger != nil {
+		b.logger.Info("audio session buffer closed")
+	}
 }

@@ -3,7 +3,8 @@ package app
 
 import (
 	"context"
-	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -21,39 +22,41 @@ import (
 )
 
 func Run() {
+	logger := newLogger(os.Stdout)
+
 	// load discord token from .env file
 	err := godotenv.Load()
 	if err != nil {
-		fmt.Println("Error loading .env file")
+		logger.Warn("loading .env file", "err", err)
 	}
 
 	// parse token
 	token := os.Getenv("DISCORD_TOKEN")
 	if token == "" {
-		fmt.Println("Error: DISCORD_TOKEN not found in .env file")
+		logger.Error("Discord token is not configured")
 		return
 	}
 
 	// parse guild ID
 	guildID := os.Getenv("DISCORD_GUILD_ID")
 	if guildID == "" {
-		fmt.Println("Error: DISCORD_GUILD_ID is not set")
+		logger.Error("Discord guild ID is not configured")
 		return
 	}
 
 	transcriber, err := whisper.NewWhisperTranscriberFromEnv()
 	if err != nil {
-		fmt.Println("Error configuring local transcription:", err)
+		logger.Error("configuring local transcription", "err", err)
 		return
 	}
 	if transcriber == nil {
-		fmt.Println("local transcription is not configured")
+		logger.Info("local transcription is not configured")
 	}
 
 	// disgo requires botUserID for the voice manager
 	botUserID, err := discordbot.BotUserIDFromToken(token)
 	if err != nil {
-		fmt.Println("Error getting bot user ID:", err)
+		logger.Error("getting bot user ID from token", "err", err)
 		return
 	}
 
@@ -79,8 +82,9 @@ func Run() {
 			)
 		},
 		botUserID,
+		logger,
 	)
-	sessions := session.NewManager(transcriber)
+	sessions := session.NewManager(transcriber, logger)
 
 	client, err = disgo.New(
 		token,
@@ -102,7 +106,7 @@ func Run() {
 		),
 	)
 	if err != nil {
-		fmt.Println("Error creating Discord client:", err)
+		logger.Error("creating Discord client", "err", err)
 		return
 	}
 
@@ -110,7 +114,7 @@ func Run() {
 	defer client.Close(context.Background())
 	defer func() {
 		if err := sessions.Close(context.Background()); err != nil {
-			fmt.Println("Error finalizing recordings:", err)
+			logger.Error("finalizing recordings", "err", err)
 		}
 	}()
 
@@ -118,27 +122,20 @@ func Run() {
 	client.AddEventListeners(
 		&events.ListenerAdapter{
 			OnApplicationCommandInteraction: func(event *events.ApplicationCommandInteractionCreate) {
-				discordbot.HandleApplicationCommandInteraction(event, client, voiceManager, sessions)
+				discordbot.HandleApplicationCommandInteraction(event, client, voiceManager, sessions, logger)
 			},
 			OnGuildVoiceStateUpdate: func(event *events.GuildVoiceStateUpdate) {
-				channelID := "<nil>"
-				if event.VoiceState.ChannelID != nil {
-					channelID = event.VoiceState.ChannelID.String()
+				attributes := []any{
+					slog.String("guild_id", event.VoiceState.GuildID.String()),
+					slog.String("user_id", event.VoiceState.UserID.String()),
 				}
-
-				fmt.Printf(
-					"VOICE STATE: guild=%v user=%v channel=%s\n",
-					event.VoiceState.GuildID,
-					event.VoiceState.UserID,
-					channelID,
-				)
+				if event.VoiceState.ChannelID != nil {
+					attributes = append(attributes, slog.String("channel_id", event.VoiceState.ChannelID.String()))
+				}
+				logger.Debug("voice state updated", attributes...)
 			},
 			OnVoiceServerUpdate: func(event *events.VoiceServerUpdate) {
-				fmt.Printf(
-					"VOICE SERVER: guild=%v endpoint=%v\n",
-					event.GuildID,
-					event.Endpoint,
-				)
+				logger.Debug("voice server updated", slog.String("guild_id", event.GuildID.String()))
 			},
 		},
 	)
@@ -146,25 +143,29 @@ func Run() {
 	// open the Discord gateway to start receiving events
 	err = client.OpenGateway(context.Background())
 	if err != nil {
-		fmt.Println("Error opening Discord gateway:", err)
+		logger.Error("opening Discord gateway", "err", err)
 		return
 	}
 
 	// status
-	fmt.Println("vexbot connected to discord")
+	logger.Info("connected to Discord")
 
-	err = discordbot.RegisterCommands(client, guildID)
+	err = discordbot.RegisterCommands(client, guildID, logger)
 	if err != nil {
-		fmt.Println("Error registering commands:", err)
+		logger.Error("registering commands", "err", err)
 		return
 	}
-
-	// status
-	fmt.Println("registered commands")
 
 	// Wait for a termination signal to gracefully shut down the bot
 	// otherwise program will exit immediately
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
+	logger.Info("received shutdown signal")
+}
+
+func newLogger(output io.Writer) *slog.Logger {
+	return slog.New(slog.NewTextHandler(output, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}))
 }

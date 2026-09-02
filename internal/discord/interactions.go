@@ -2,7 +2,7 @@ package discord
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/cache"
@@ -19,25 +19,26 @@ func HandleApplicationCommandInteraction(
 	client *bot.Client,
 	voiceManager voice.Manager,
 	sessions *session.Manager,
+	logger *slog.Logger,
 ) {
 	switch event.SlashCommandInteractionData().CommandName() {
 	case "ping":
-		handlePing(event)
+		handlePing(event, logger)
 
 	case "join":
-		handleJoin(event, client, voiceManager, sessions)
+		handleJoin(event, client, voiceManager, sessions, logger)
 
 	case "stop":
-		handleStop(event, client.Caches, sessions)
+		handleStop(event, client.Caches, sessions, logger)
 	}
 }
 
-func handlePing(event *events.ApplicationCommandInteractionCreate) {
+func handlePing(event *events.ApplicationCommandInteractionCreate, logger *slog.Logger) {
 	err := event.CreateMessage(discord.MessageCreate{
 		Content: "Pong!",
 	})
 	if err != nil {
-		fmt.Println("Error responding to /ping:", err)
+		logError(logger, "responding to ping command", "err", err, slog.String("user_id", event.User().ID.String()))
 	}
 }
 
@@ -46,6 +47,7 @@ func handleJoin(
 	client *bot.Client,
 	voiceManager voice.Manager,
 	sessions *session.Manager,
+	logger *slog.Logger,
 ) {
 	guildID := event.GuildID()
 	if guildID == nil {
@@ -68,7 +70,11 @@ func handleJoin(
 	})
 	if err != nil {
 		sessions.CancelReservation(*guildID)
-		fmt.Println("Error responding to /join:", err)
+		logError(logger, "responding to join command",
+			"err", err,
+			slog.String("guild_id", guildID.String()),
+			slog.String("user_id", user.ID.String()),
+		)
 		return
 	}
 
@@ -79,19 +85,30 @@ func handleJoin(
 			client.Caches,
 			*guildID,
 			user.ID,
+			logger,
 		)
 		if err != nil {
 			sessions.CancelReservation(*guildID)
-			fmt.Println("Error joining voice channel:", err)
+			logError(logger, "joining voice channel",
+				"err", err,
+				slog.String("guild_id", guildID.String()),
+				slog.String("user_id", user.ID.String()),
+			)
 			return
 		}
 
 		sessions.Start(session)
-		fmt.Printf("Successfully joined voice channel; recording to %s\n", session.RecorderDirectory())
+		if logger != nil {
+			logger.Info("joined voice channel and started recording",
+				slog.String("guild_id", guildID.String()),
+				slog.String("user_id", user.ID.String()),
+				slog.String("directory", session.RecorderDirectory()),
+			)
+		}
 	}()
 }
 
-func handleStop(event *events.ApplicationCommandInteractionCreate, caches cache.Caches, sessions *session.Manager) {
+func handleStop(event *events.ApplicationCommandInteractionCreate, caches cache.Caches, sessions *session.Manager, logger *slog.Logger) {
 	guildID := event.GuildID()
 	if guildID == nil {
 		_ = event.CreateMessage(discord.MessageCreate{
@@ -102,6 +119,11 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, caches cache.
 
 	session, err := sessions.Stop(context.Background(), *guildID, event.User().ID)
 	if err != nil {
+		logError(logger, "stopping recording",
+			"err", err,
+			slog.String("guild_id", guildID.String()),
+			slog.String("user_id", event.User().ID.String()),
+		)
 		_ = event.CreateMessage(discord.MessageCreate{
 			Content: "Unable to stop recording: " + err.Error(),
 		})
@@ -109,12 +131,22 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, caches cache.
 	}
 	session.DisplayNames = SnapshotDisplayNames(caches, *guildID, session.Files)
 	if renamedFiles, err := recording.RenameFiles(session.Files, session.DisplayNames); err != nil {
-		fmt.Println("Error renaming recording files:", err)
+		logError(logger, "renaming recording files",
+			"err", err,
+			slog.String("guild_id", guildID.String()),
+			slog.String("directory", session.Directory),
+		)
 	} else {
 		session.Files = renamedFiles
 	}
 
-	fmt.Printf("Recording stopped; files saved to %s\n", session.Directory)
+	if logger != nil {
+		logger.Info("recording stopped",
+			slog.String("guild_id", guildID.String()),
+			slog.String("user_id", event.User().ID.String()),
+			slog.String("directory", session.Directory),
+		)
+	}
 	message := "Recording stopped and I left the voice channel."
 	if sessions.StartTranscription(session) {
 		message += " Local transcription has started."
@@ -124,4 +156,10 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, caches cache.
 	_ = event.CreateMessage(discord.MessageCreate{
 		Content: message,
 	})
+}
+
+func logError(logger *slog.Logger, message string, args ...any) {
+	if logger != nil {
+		logger.Error(message, args...)
+	}
 }

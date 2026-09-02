@@ -1,7 +1,7 @@
 package discord
 
 import (
-	"fmt"
+	"log/slog"
 
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
@@ -24,7 +24,7 @@ var stopCommand = discord.SlashCommandCreate{
 }
 
 // RegisterCommands installs VexBot's slash commands for a development guild.
-func RegisterCommands(client *bot.Client, guildID string) error {
+func RegisterCommands(client *bot.Client, guildID string, logger *slog.Logger) error {
 	guild, err := snowflake.Parse(guildID)
 	if err != nil {
 		return err
@@ -45,7 +45,9 @@ func RegisterCommands(client *bot.Client, guildID string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("registered command: %s\n", command.Name)
+		if logger != nil {
+			logger.Info("registered command", slog.String("command", command.Name))
+		}
 	}
 
 	return nil

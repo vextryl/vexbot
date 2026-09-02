@@ -15,7 +15,7 @@ func (c *collectedAudioChunks) ConsumeChunk(chunk Chunk) {
 
 func TestSegmentBufferSplitsTimestampGaps(t *testing.T) {
 	var chunks collectedAudioChunks
-	buffer := NewSegmentBuffer(&chunks)
+	buffer := NewSegmentBuffer(&chunks, nil)
 	userID := snowflake.ID(42)
 
 	buffer.ConsumeFrame(Frame{

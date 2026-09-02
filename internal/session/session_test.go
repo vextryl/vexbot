@@ -7,7 +7,7 @@ import (
 )
 
 func TestManagerReservePreventsDuplicateReservations(t *testing.T) {
-	manager := NewManager(nil)
+	manager := NewManager(nil, nil)
 	guildID := snowflake.ID(42)
 
 	if !manager.Reserve(guildID) {
@@ -24,7 +24,7 @@ func TestManagerReservePreventsDuplicateReservations(t *testing.T) {
 }
 
 func TestManagerStartConsumesReservationAndKeepsSessionActive(t *testing.T) {
-	manager := NewManager(nil)
+	manager := NewManager(nil, nil)
 	guildID := snowflake.ID(42)
 
 	if !manager.Reserve(guildID) {
