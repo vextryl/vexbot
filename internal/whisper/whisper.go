@@ -1,3 +1,5 @@
+// Package whisper runs the local Whisper CLI for WAV recordings and parses
+// its timestamped transcription output.
 package whisper
 
 import (

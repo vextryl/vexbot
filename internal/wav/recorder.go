@@ -1,3 +1,5 @@
+// Package wav records compact per-speaker PCM WAV files and a shared timeline
+// that maps their audio back to session time.
 package wav
 
 import (

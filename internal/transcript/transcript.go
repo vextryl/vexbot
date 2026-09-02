@@ -1,3 +1,5 @@
+// Package transcript writes a readable, chronological conversation log from
+// transcribed speaker turns.
 package transcript
 
 import (

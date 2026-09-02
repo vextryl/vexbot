@@ -1,3 +1,5 @@
+// Package audio receives decoded Discord audio and groups it into contiguous
+// per-speaker PCM segments for recording sinks.
 package audio
 
 import (

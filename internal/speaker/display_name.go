@@ -1,3 +1,5 @@
+// Package speaker normalizes Discord display names and resolves a readable
+// speaker label with a user-ID fallback.
 package speaker
 
 import (

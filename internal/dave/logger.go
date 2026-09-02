@@ -1,3 +1,5 @@
+// Package dave provides VexBot's local Discord DAVE session support and
+// rate-limited logging for transient decrypt failures.
 package dave
 
 import (

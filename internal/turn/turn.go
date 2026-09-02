@@ -1,3 +1,5 @@
+// Package turn groups a session timeline into speaker turns, extracts their
+// WAV audio, and submits each turn to a local transcriber.
 package turn
 
 import (
