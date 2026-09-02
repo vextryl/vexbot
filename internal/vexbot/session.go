@@ -9,6 +9,7 @@ import (
 	"github.com/disgoorg/disgo/voice"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/vextryl/vexbot/internal/audio"
+	"github.com/vextryl/vexbot/internal/wav"
 )
 
 type VoiceSession struct {
@@ -18,13 +19,13 @@ type VoiceSession struct {
 	ownerID   snowflake.ID
 	conn      voice.Conn
 	buffer    *audio.SegmentBuffer
-	recorder  *wavRecorder
+	recorder  *wav.Recorder
 	stopped   bool
 }
 
 func NewVoiceSession(guildID, ownerID snowflake.ID, conn voice.Conn) (*VoiceSession, error) {
 	startedAt := time.Now()
-	recorder, err := newWAVRecorder(guildID, startedAt)
+	recorder, err := wav.NewRecorder(guildID, startedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +52,7 @@ func (s *VoiceSession) RecorderDirectory() string {
 	return s.recorder.Directory()
 }
 
-func (s *VoiceSession) RecordingFiles() []RecordingFile {
+func (s *VoiceSession) RecordingFiles() []wav.File {
 	return s.recorder.Files()
 }
 
@@ -124,7 +125,7 @@ func (m *SessionManager) CancelReservation(guildID snowflake.ID) {
 
 type StoppedSession struct {
 	Directory    string
-	Files        []RecordingFile
+	Files        []wav.File
 	DisplayNames map[string]string
 }
 

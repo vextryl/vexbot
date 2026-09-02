@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/vextryl/vexbot/internal/wav"
 )
 
 type pcmWAVFormat struct {
@@ -41,7 +43,7 @@ func extractTurnWAV(temporaryDir, sourcePath string, turn transcriptionTurn) (st
 		return "", fmt.Errorf("turn WAV range is empty")
 	}
 
-	bytesPerFrame := int64(format.Channels) * wavSampleBytes
+	bytesPerFrame := int64(format.Channels) * wav.SampleBytes
 	startByte := startFrame * bytesPerFrame
 	endByte := endFrame * bytesPerFrame
 	if startByte < 0 || endByte > int64(format.DataBytes) {
@@ -64,7 +66,7 @@ func extractTurnWAV(temporaryDir, sourcePath string, turn transcriptionTurn) (st
 	if err := writePCM16WAVHeader(temporaryFile, format.SampleRate, format.Channels, dataBytes); err != nil {
 		return "", fmt.Errorf("write temporary WAV header: %w", err)
 	}
-	if _, err := source.Seek(wavHeaderSize+startByte, io.SeekStart); err != nil {
+	if _, err := source.Seek(wav.HeaderSize+startByte, io.SeekStart); err != nil {
 		return "", fmt.Errorf("seek source WAV: %w", err)
 	}
 	if _, err := io.CopyN(temporaryFile, source, int64(dataBytes)); err != nil {
@@ -79,7 +81,7 @@ func extractTurnWAV(temporaryDir, sourcePath string, turn transcriptionTurn) (st
 }
 
 func readPCMWAVFormat(file *os.File) (pcmWAVFormat, error) {
-	var header [wavHeaderSize]byte
+	var header [wav.HeaderSize]byte
 	if _, err := io.ReadFull(file, header[:]); err != nil {
 		return pcmWAVFormat{}, err
 	}
@@ -98,7 +100,7 @@ func readPCMWAVFormat(file *os.File) (pcmWAVFormat, error) {
 		Channels:   binary.LittleEndian.Uint16(header[22:24]),
 		DataBytes:  binary.LittleEndian.Uint32(header[40:44]),
 	}
-	if format.SampleRate == 0 || format.Channels == 0 || int64(format.DataBytes)%(int64(format.Channels)*wavSampleBytes) != 0 {
+	if format.SampleRate == 0 || format.Channels == 0 || int64(format.DataBytes)%(int64(format.Channels)*wav.SampleBytes) != 0 {
 		return pcmWAVFormat{}, fmt.Errorf("invalid PCM WAV format")
 	}
 
@@ -118,7 +120,7 @@ func wavDurationToFrames(duration time.Duration, sampleRate uint32) (int64, erro
 }
 
 func writePCM16WAVHeader(file *os.File, sampleRate uint32, channels uint16, dataBytes uint32) error {
-	header := make([]byte, wavHeaderSize)
+	header := make([]byte, wav.HeaderSize)
 	copy(header[0:4], "RIFF")
 	binary.LittleEndian.PutUint32(header[4:8], 36+dataBytes)
 	copy(header[8:12], "WAVE")
@@ -127,8 +129,8 @@ func writePCM16WAVHeader(file *os.File, sampleRate uint32, channels uint16, data
 	binary.LittleEndian.PutUint16(header[20:22], 1)
 	binary.LittleEndian.PutUint16(header[22:24], channels)
 	binary.LittleEndian.PutUint32(header[24:28], sampleRate)
-	binary.LittleEndian.PutUint32(header[28:32], sampleRate*uint32(channels)*wavSampleBytes)
-	binary.LittleEndian.PutUint16(header[32:34], channels*wavSampleBytes)
+	binary.LittleEndian.PutUint32(header[28:32], sampleRate*uint32(channels)*wav.SampleBytes)
+	binary.LittleEndian.PutUint16(header[32:34], channels*wav.SampleBytes)
 	binary.LittleEndian.PutUint16(header[34:36], 16)
 	copy(header[36:40], "data")
 	binary.LittleEndian.PutUint32(header[40:44], dataBytes)

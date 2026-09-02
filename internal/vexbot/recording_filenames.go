@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/vextryl/vexbot/internal/speaker"
+	"github.com/vextryl/vexbot/internal/wav"
 )
 
 const maxRecordingFileStemBytes = 180
@@ -26,7 +27,7 @@ type recordingRename struct {
 	destination string
 }
 
-func renameRecordingFiles(files []RecordingFile, displayNames map[string]string) ([]RecordingFile, error) {
+func renameRecordingFiles(files []wav.File, displayNames map[string]string) ([]wav.File, error) {
 	planned := make([]recordingRename, len(files))
 	usedStems := make(map[string]struct{}, len(files))
 	sourcePaths := make(map[string]struct{}, len(files))
@@ -67,7 +68,7 @@ func renameRecordingFiles(files []RecordingFile, displayNames map[string]string)
 		}
 	}
 
-	renamed := append([]RecordingFile(nil), files...)
+	renamed := append([]wav.File(nil), files...)
 	for index := range renamed {
 		renamed[index].Path = planned[index].destination
 	}

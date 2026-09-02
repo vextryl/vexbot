@@ -1,4 +1,4 @@
-package vexbot
+package wav
 
 import (
 	"encoding/binary"
@@ -14,7 +14,7 @@ import (
 
 func TestWAVRecorderWritesFinalizedPCMFile(t *testing.T) {
 	dir := t.TempDir()
-	recorder := newTestWAVRecorder(dir)
+	recorder := newTestRecorder(dir)
 	userID := snowflake.ID(42)
 	samples := []int16{-32768, -1, 0, 32767}
 
@@ -33,23 +33,23 @@ func TestWAVRecorderWritesFinalizedPCMFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
-	if len(contents) != wavHeaderSize+len(samples)*wavSampleBytes {
-		t.Fatalf("file length = %d, want %d", len(contents), wavHeaderSize+len(samples)*wavSampleBytes)
+	if len(contents) != HeaderSize+len(samples)*SampleBytes {
+		t.Fatalf("file length = %d, want %d", len(contents), HeaderSize+len(samples)*SampleBytes)
 	}
 	if string(contents[0:4]) != "RIFF" || string(contents[8:12]) != "WAVE" {
 		t.Fatalf("file does not have a RIFF/WAVE header")
 	}
-	if got := binary.LittleEndian.Uint32(contents[40:44]); got != uint32(len(samples)*wavSampleBytes) {
-		t.Fatalf("data size = %d, want %d", got, len(samples)*wavSampleBytes)
+	if got := binary.LittleEndian.Uint32(contents[40:44]); got != uint32(len(samples)*SampleBytes) {
+		t.Fatalf("data size = %d, want %d", got, len(samples)*SampleBytes)
 	}
-	if got := int16(binary.LittleEndian.Uint16(contents[44:46])); got != samples[0] {
+	if got := int16(binary.LittleEndian.Uint16(contents[HeaderSize : HeaderSize+SampleBytes])); got != samples[0] {
 		t.Fatalf("first sample = %d, want %d", got, samples[0])
 	}
 }
 
 func TestWAVRecorderWritesTimeline(t *testing.T) {
 	dir := t.TempDir()
-	recorder := newTestWAVRecorder(dir)
+	recorder := newTestRecorder(dir)
 
 	recorder.ConsumeChunk(audio.Chunk{
 		UserID: 42, Samples: []int16{1, 2}, SampleRate: 2, Channels: 1,
@@ -67,12 +67,12 @@ func TestWAVRecorderWritesTimeline(t *testing.T) {
 		t.Fatalf("Close() error = %v", err)
 	}
 
-	contents, err := os.ReadFile(filepath.Join(dir, timelineFileName))
+	contents, err := os.ReadFile(filepath.Join(dir, TimelineFileName))
 	if err != nil {
 		t.Fatalf("ReadFile(timeline.json) error = %v", err)
 	}
 
-	var timeline sessionTimeline
+	var timeline Timeline
 	if err := json.Unmarshal(contents, &timeline); err != nil {
 		t.Fatalf("Unmarshal(timeline.json) error = %v", err)
 	}
@@ -91,8 +91,8 @@ func TestWAVRecorderWritesTimeline(t *testing.T) {
 	}
 }
 
-func newTestWAVRecorder(dir string) *wavRecorder {
-	return &wavRecorder{
+func newTestRecorder(dir string) *Recorder {
+	return &Recorder{
 		dir:      dir,
 		writers:  make(map[snowflake.ID]*wavWriter),
 		lastSpan: make(map[snowflake.ID]int),

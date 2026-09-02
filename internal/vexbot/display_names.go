@@ -2,6 +2,7 @@ package vexbot
 
 import (
 	"github.com/vextryl/vexbot/internal/speaker"
+	"github.com/vextryl/vexbot/internal/wav"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
@@ -11,7 +12,7 @@ type memberLookup interface {
 	Member(snowflake.ID, snowflake.ID) (discord.Member, bool)
 }
 
-func snapshotDisplayNames(lookup memberLookup, guildID snowflake.ID, recordings []RecordingFile) map[string]string {
+func snapshotDisplayNames(lookup memberLookup, guildID snowflake.ID, recordings []wav.File) map[string]string {
 	displayNames := make(map[string]string, len(recordings))
 	for _, recording := range recordings {
 		userID := recording.UserID.String()

@@ -3,6 +3,8 @@ package vexbot
 import (
 	"sort"
 	"time"
+
+	"github.com/vextryl/vexbot/internal/wav"
 )
 
 const transcriptionTurnPauseThreshold = 2 * time.Second
@@ -19,8 +21,8 @@ type transcriptionTurn struct {
 
 // buildTranscriptionTurns groups each speaker's nearby recording spans into
 // turns. A real-session pause of two seconds or more starts a new turn.
-func buildTranscriptionTurns(timeline sessionTimeline) []transcriptionTurn {
-	spansByUser := make(map[string][]timelineSpan)
+func buildTranscriptionTurns(timeline wav.Timeline) []transcriptionTurn {
+	spansByUser := make(map[string][]wav.Span)
 	for _, span := range timeline.Spans {
 		spansByUser[span.UserID] = append(spansByUser[span.UserID], span)
 	}

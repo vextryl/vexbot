@@ -1,4 +1,4 @@
-package vexbot
+package wav
 
 import (
 	"bufio"
@@ -17,13 +17,13 @@ import (
 )
 
 const (
-	recordingsDirectory = "recordings"
-	timelineFileName    = "timeline.json"
-	wavHeaderSize       = 44
-	wavSampleBytes      = 2
+	RecordingsDirectory = "recordings"
+	TimelineFileName    = "timeline.json"
+	HeaderSize          = 44
+	SampleBytes         = 2
 )
 
-type wavRecorder struct {
+type Recorder struct {
 	mu       sync.Mutex
 	dir      string
 	writers  map[snowflake.ID]*wavWriter
@@ -42,7 +42,7 @@ type wavWriter struct {
 	dataBytes  uint32
 }
 
-type RecordingFile struct {
+type File struct {
 	UserID snowflake.ID
 	Path   string
 }
@@ -55,12 +55,12 @@ type recordingSpan struct {
 	WAVEnd       time.Duration
 }
 
-type sessionTimeline struct {
-	Version int            `json:"version"`
-	Spans   []timelineSpan `json:"spans"`
+type Timeline struct {
+	Version int    `json:"version"`
+	Spans   []Span `json:"spans"`
 }
 
-type timelineSpan struct {
+type Span struct {
 	UserID         string `json:"user_id"`
 	SessionStartMS int64  `json:"session_start_ms"`
 	SessionEndMS   int64  `json:"session_end_ms"`
@@ -68,31 +68,31 @@ type timelineSpan struct {
 	WAVEndMS       int64  `json:"wav_end_ms"`
 }
 
-func newWAVRecorder(guildID snowflake.ID, startedAt time.Time) (*wavRecorder, error) {
+func NewRecorder(guildID snowflake.ID, startedAt time.Time) (*Recorder, error) {
 	sessionID := fmt.Sprintf("%s-%s", startedAt.UTC().Format("20060102T150405Z"), guildID)
-	dir := filepath.Join(recordingsDirectory, sessionID)
+	dir := filepath.Join(RecordingsDirectory, sessionID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create recording directory: %w", err)
 	}
 
-	return &wavRecorder{
+	return &Recorder{
 		dir:      dir,
 		writers:  make(map[snowflake.ID]*wavWriter),
 		lastSpan: make(map[snowflake.ID]int),
 	}, nil
 }
 
-func (r *wavRecorder) Directory() string {
+func (r *Recorder) Directory() string {
 	return r.dir
 }
 
-func (r *wavRecorder) Files() []RecordingFile {
+func (r *Recorder) Files() []File {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	files := make([]RecordingFile, 0, len(r.writers))
+	files := make([]File, 0, len(r.writers))
 	for userID, writer := range r.writers {
-		files = append(files, RecordingFile{
+		files = append(files, File{
 			UserID: userID,
 			Path:   writer.path,
 		})
@@ -104,7 +104,7 @@ func (r *wavRecorder) Files() []RecordingFile {
 	return files
 }
 
-func (r *wavRecorder) ConsumeChunk(chunk audio.Chunk) {
+func (r *Recorder) ConsumeChunk(chunk audio.Chunk) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -144,7 +144,7 @@ func (r *wavRecorder) ConsumeChunk(chunk audio.Chunk) {
 	})
 }
 
-func (r *wavRecorder) Close() error {
+func (r *Recorder) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -172,7 +172,7 @@ func (r *wavRecorder) Close() error {
 	return r.err
 }
 
-func (r *wavRecorder) newWriter(userID snowflake.ID, sampleRate, channels int) (*wavWriter, error) {
+func (r *Recorder) newWriter(userID snowflake.ID, sampleRate, channels int) (*wavWriter, error) {
 	path := filepath.Join(r.dir, userID.String()+".wav")
 	file, err := os.Create(path)
 	if err != nil {
@@ -194,13 +194,13 @@ func (r *wavRecorder) newWriter(userID snowflake.ID, sampleRate, channels int) (
 	return writer, nil
 }
 
-func (r *wavRecorder) setError(err error) {
+func (r *Recorder) setError(err error) {
 	if err != nil && r.err == nil {
 		r.err = err
 	}
 }
 
-func (r *wavRecorder) recordSpan(span recordingSpan) {
+func (r *Recorder) recordSpan(span recordingSpan) {
 	if lastIndex, ok := r.lastSpan[span.UserID]; ok {
 		last := &r.spans[lastIndex]
 		if recordingTimestampsMatch(last.SessionEnd, span.SessionStart) &&
@@ -223,7 +223,7 @@ func recordingTimestampsMatch(first, second time.Duration) bool {
 	return difference <= time.Millisecond
 }
 
-func (r *wavRecorder) writeTimeline() error {
+func (r *Recorder) writeTimeline() error {
 	spans := append([]recordingSpan(nil), r.spans...)
 	sort.Slice(spans, func(i, j int) bool {
 		if spans[i].SessionStart == spans[j].SessionStart {
@@ -232,12 +232,12 @@ func (r *wavRecorder) writeTimeline() error {
 		return spans[i].SessionStart < spans[j].SessionStart
 	})
 
-	timeline := sessionTimeline{
+	timeline := Timeline{
 		Version: 1,
-		Spans:   make([]timelineSpan, 0, len(spans)),
+		Spans:   make([]Span, 0, len(spans)),
 	}
 	for _, span := range spans {
-		timeline.Spans = append(timeline.Spans, timelineSpan{
+		timeline.Spans = append(timeline.Spans, Span{
 			UserID:         span.UserID.String(),
 			SessionStartMS: span.SessionStart.Milliseconds(),
 			SessionEndMS:   span.SessionEnd.Milliseconds(),
@@ -252,7 +252,7 @@ func (r *wavRecorder) writeTimeline() error {
 	}
 	contents = append(contents, '\n')
 
-	temporaryFile, err := os.CreateTemp(r.dir, timelineFileName+"-*")
+	temporaryFile, err := os.CreateTemp(r.dir, TimelineFileName+"-*")
 	if err != nil {
 		return err
 	}
@@ -267,7 +267,7 @@ func (r *wavRecorder) writeTimeline() error {
 		return err
 	}
 
-	return os.Rename(temporaryPath, filepath.Join(r.dir, timelineFileName))
+	return os.Rename(temporaryPath, filepath.Join(r.dir, TimelineFileName))
 }
 
 func chunkDuration(chunk audio.Chunk) time.Duration {
@@ -276,18 +276,18 @@ func chunkDuration(chunk audio.Chunk) time.Duration {
 }
 
 func (w *wavWriter) duration() time.Duration {
-	frames := int64(w.dataBytes) / int64(w.channels*wavSampleBytes)
+	frames := int64(w.dataBytes) / int64(w.channels*SampleBytes)
 	return time.Duration(frames) * time.Second / time.Duration(w.sampleRate)
 }
 
 func (w *wavWriter) writeSamples(samples []int16) error {
-	bytes := make([]byte, len(samples)*wavSampleBytes)
+	bytes := make([]byte, len(samples)*SampleBytes)
 	if len(bytes) > int(^uint32(0)-w.dataBytes) {
 		return fmt.Errorf("WAV file exceeds 4 GiB")
 	}
 
 	for i, sample := range samples {
-		binary.LittleEndian.PutUint16(bytes[i*wavSampleBytes:], uint16(sample))
+		binary.LittleEndian.PutUint16(bytes[i*SampleBytes:], uint16(sample))
 	}
 
 	if _, err := w.writer.Write(bytes); err != nil {
@@ -298,7 +298,7 @@ func (w *wavWriter) writeSamples(samples []int16) error {
 }
 
 func (w *wavWriter) writeHeader() error {
-	header := make([]byte, wavHeaderSize)
+	header := make([]byte, HeaderSize)
 	copy(header[0:4], "RIFF")
 	binary.LittleEndian.PutUint32(header[4:8], 36)
 	copy(header[8:12], "WAVE")
@@ -307,8 +307,8 @@ func (w *wavWriter) writeHeader() error {
 	binary.LittleEndian.PutUint16(header[20:22], 1)
 	binary.LittleEndian.PutUint16(header[22:24], uint16(w.channels))
 	binary.LittleEndian.PutUint32(header[24:28], uint32(w.sampleRate))
-	binary.LittleEndian.PutUint32(header[28:32], uint32(w.sampleRate*w.channels*wavSampleBytes))
-	binary.LittleEndian.PutUint16(header[32:34], uint16(w.channels*wavSampleBytes))
+	binary.LittleEndian.PutUint32(header[28:32], uint32(w.sampleRate*w.channels*SampleBytes))
+	binary.LittleEndian.PutUint16(header[32:34], uint16(w.channels*SampleBytes))
 	binary.LittleEndian.PutUint16(header[34:36], 16)
 	copy(header[36:40], "data")
 

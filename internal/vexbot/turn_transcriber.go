@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/vextryl/vexbot/internal/wav"
 )
 
 type TurnTranscription struct {
@@ -21,17 +23,17 @@ type TurnTranscription struct {
 func transcribeRecordingTurns(
 	ctx context.Context,
 	directory string,
-	recordings []RecordingFile,
+	recordings []wav.File,
 	transcriber Transcriber,
 	onStart func(total int),
 	onProgress func(completed, total int, result TurnTranscription),
 ) ([]TurnTranscription, error) {
-	contents, err := os.ReadFile(filepath.Join(directory, timelineFileName))
+	contents, err := os.ReadFile(filepath.Join(directory, wav.TimelineFileName))
 	if err != nil {
 		return nil, fmt.Errorf("read session timeline: %w", err)
 	}
 
-	var timeline sessionTimeline
+	var timeline wav.Timeline
 	if err := json.Unmarshal(contents, &timeline); err != nil {
 		return nil, fmt.Errorf("parse session timeline: %w", err)
 	}
@@ -39,7 +41,7 @@ func transcribeRecordingTurns(
 		return nil, fmt.Errorf("unsupported session timeline version %d", timeline.Version)
 	}
 
-	recordingsByUser := make(map[string]RecordingFile, len(recordings))
+	recordingsByUser := make(map[string]wav.File, len(recordings))
 	for _, recording := range recordings {
 		recordingsByUser[recording.UserID.String()] = recording
 	}
@@ -77,7 +79,7 @@ func transcribeRecordingTurns(
 			continue
 		}
 
-		transcription, err := transcriber.Transcribe(ctx, RecordingFile{
+		transcription, err := transcriber.Transcribe(ctx, wav.File{
 			UserID: recording.UserID,
 			Path:   temporaryWAV,
 		})

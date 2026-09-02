@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/vextryl/vexbot/internal/wav"
 )
 
 const (
@@ -21,7 +23,7 @@ const (
 )
 
 type Transcriber interface {
-	Transcribe(context.Context, RecordingFile) (Transcription, error)
+	Transcribe(context.Context, wav.File) (Transcription, error)
 }
 
 type Transcription struct {
@@ -121,7 +123,7 @@ func newWhisperTranscriber(
 	}, nil
 }
 
-func (t *whisperTranscriber) Transcribe(ctx context.Context, recording RecordingFile) (Transcription, error) {
+func (t *whisperTranscriber) Transcribe(ctx context.Context, recording wav.File) (Transcription, error) {
 	temporaryDir, err := os.MkdirTemp("", "vexbot-whisper-*")
 	if err != nil {
 		return Transcription{}, fmt.Errorf("create temporary audio directory: %w", err)
