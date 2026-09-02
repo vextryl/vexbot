@@ -158,30 +158,31 @@ func (m *SessionManager) StartTranscription(session StoppedSession) bool {
 	}
 
 	go func() {
-		fmt.Printf("Starting local transcription for %d recording(s)\n", len(session.Files))
-		transcriptions := make(map[string]Transcription, len(session.Files))
-		for _, recording := range session.Files {
-			transcription, err := m.transcriber.Transcribe(context.Background(), recording)
-			if err != nil {
-				fmt.Printf("Error transcribing user %v: %v\n", recording.UserID, err)
+		fmt.Println("Starting local transcription for detected speaking turns")
+		results, err := transcribeRecordingTurns(
+			context.Background(),
+			session.Directory,
+			session.Files,
+			m.transcriber,
+		)
+		if err != nil {
+			fmt.Printf("Error preparing local transcription: %v\n", err)
+			return
+		}
+
+		fmt.Printf("Local transcription finished for %d turn(s)\n", len(results))
+		for index, result := range results {
+			if result.Err != nil {
+				fmt.Printf("Error transcribing turn %d for user %s: %v\n", index+1, result.Turn.UserID, result.Err)
 				continue
 			}
 			fmt.Printf(
-				"Transcript for user %v saved to %s (%d timestamped token(s) in %s)\n",
-				recording.UserID,
-				transcription.TextPath,
-				len(transcription.Tokens),
-				transcription.JSONPath,
+				"Transcribed turn %d for user %s (%d timestamped token(s))\n",
+				index+1,
+				result.Turn.UserID,
+				len(result.Transcription.Tokens),
 			)
-			transcriptions[recording.UserID.String()] = transcription
 		}
-
-		transcriptPath, lineCount, err := writeCombinedTranscript(session.Directory, transcriptions)
-		if err != nil {
-			fmt.Printf("Error writing combined transcript: %v\n", err)
-			return
-		}
-		fmt.Printf("Combined transcript saved to %s (%d line(s))\n", transcriptPath, lineCount)
 	}()
 
 	return true
