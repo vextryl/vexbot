@@ -159,31 +159,40 @@ func (m *SessionManager) StartTranscription(session StoppedSession) bool {
 	}
 
 	go func() {
-		fmt.Println("Starting local transcription for detected speaking turns")
+		nextProgressPercent := 10
 		results, err := transcribeRecordingTurns(
 			context.Background(),
 			session.Directory,
 			session.Files,
 			m.transcriber,
+			func(total int) {
+				fmt.Printf("Starting local transcription for %d turn(s)\n", total)
+			},
+			func(completed, total int, result TurnTranscription) {
+				if result.Err != nil {
+					fmt.Printf("Error transcribing turn %d for user %s: %v\n", completed, result.Turn.UserID, result.Err)
+				}
+				percent := completed * 100 / total
+				if percent >= nextProgressPercent || completed == total {
+					fmt.Printf("Local transcription progress: %d%% (%d/%d turns)\n", percent, completed, total)
+					for nextProgressPercent <= percent {
+						nextProgressPercent += 10
+					}
+				}
+			},
 		)
 		if err != nil {
 			fmt.Printf("Error preparing local transcription: %v\n", err)
 			return
 		}
 
-		fmt.Printf("Local transcription finished for %d turn(s)\n", len(results))
-		for index, result := range results {
+		failed := 0
+		for _, result := range results {
 			if result.Err != nil {
-				fmt.Printf("Error transcribing turn %d for user %s: %v\n", index+1, result.Turn.UserID, result.Err)
-				continue
+				failed++
 			}
-			fmt.Printf(
-				"Transcribed turn %d for user %s (%d timestamped token(s))\n",
-				index+1,
-				result.Turn.UserID,
-				len(result.Transcription.Tokens),
-			)
 		}
+		fmt.Printf("Local transcription finished: %d succeeded, %d failed\n", len(results)-failed, failed)
 
 		transcriptPath, lineCount, err := writeCombinedTranscript(session.Directory, session.DisplayNames, results)
 		if err != nil {

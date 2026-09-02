@@ -23,6 +23,8 @@ func transcribeRecordingTurns(
 	directory string,
 	recordings []RecordingFile,
 	transcriber Transcriber,
+	onStart func(total int),
+	onProgress func(completed, total int, result TurnTranscription),
 ) ([]TurnTranscription, error) {
 	contents, err := os.ReadFile(filepath.Join(directory, timelineFileName))
 	if err != nil {
@@ -49,20 +51,29 @@ func transcribeRecordingTurns(
 	defer os.RemoveAll(temporaryDir)
 
 	turns := buildTranscriptionTurns(timeline)
+	if onStart != nil {
+		onStart(len(turns))
+	}
 	results := make([]TurnTranscription, 0, len(turns))
+	complete := func(result TurnTranscription) {
+		results = append(results, result)
+		if onProgress != nil {
+			onProgress(len(results), len(turns), result)
+		}
+	}
 	for _, turn := range turns {
 		result := TurnTranscription{Turn: turn}
 		recording, ok := recordingsByUser[turn.UserID]
 		if !ok {
 			result.Err = fmt.Errorf("find recording for user %s", turn.UserID)
-			results = append(results, result)
+			complete(result)
 			continue
 		}
 
 		temporaryWAV, err := extractTurnWAV(temporaryDir, recording.Path, turn)
 		if err != nil {
 			result.Err = fmt.Errorf("extract audio: %w", err)
-			results = append(results, result)
+			complete(result)
 			continue
 		}
 
@@ -76,18 +87,18 @@ func transcribeRecordingTurns(
 				err = errors.Join(err, fmt.Errorf("clean up temporary turn files: %w", cleanupErr))
 			}
 			result.Err = err
-			results = append(results, result)
+			complete(result)
 			continue
 		}
 		if cleanupErr != nil {
 			result.Err = fmt.Errorf("clean up temporary turn files: %w", cleanupErr)
-			results = append(results, result)
+			complete(result)
 			continue
 		}
 		transcription.TextPath = ""
 		transcription.JSONPath = ""
 		result.Transcription = transcription
-		results = append(results, result)
+		complete(result)
 	}
 
 	return results, nil

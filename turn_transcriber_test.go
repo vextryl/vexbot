@@ -58,15 +58,27 @@ func TestTranscribeRecordingTurnsUsesTemporaryTurnWAVs(t *testing.T) {
 	}
 
 	transcriber := &recordingTranscriber{}
+	started := 0
+	progress := make([]int, 0)
 	results, err := transcribeRecordingTurns(context.Background(), dir, []RecordingFile{{
 		UserID: snowflake.ID(42),
 		Path:   filepath.Join(dir, "42.wav"),
-	}}, transcriber)
+	}}, transcriber, func(total int) {
+		started = total
+	}, func(completed, _ int, _ TurnTranscription) {
+		progress = append(progress, completed)
+	})
 	if err != nil {
 		t.Fatalf("transcribeRecordingTurns() error = %v", err)
 	}
 	if len(results) != 2 {
 		t.Fatalf("result count = %d, want 2", len(results))
+	}
+	if started != 2 {
+		t.Fatalf("started total = %d, want 2", started)
+	}
+	if got, want := fmt.Sprint(progress), "[1 2]"; got != want {
+		t.Fatalf("progress = %s, want %s", got, want)
 	}
 	if got := results[0].Turn; got.SessionStart != 100*time.Millisecond ||
 		got.SessionEnd != 102*time.Millisecond || got.WAVStart != 0 || got.WAVEnd != 2*time.Millisecond {
