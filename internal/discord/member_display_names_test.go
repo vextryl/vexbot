@@ -1,4 +1,4 @@
-package vexbot
+package discord
 
 import (
 	"testing"
@@ -23,7 +23,7 @@ func TestSnapshotDisplayNamesUsesEffectiveNameAndIDFallback(t *testing.T) {
 			User: discord.User{ID: 42, Username: "username"},
 		},
 	}
-	names := snapshotDisplayNames(lookup, 7, []wav.File{
+	names := SnapshotDisplayNames(lookup, 7, []wav.File{
 		{UserID: 42},
 		{UserID: 99},
 	})

@@ -1,4 +1,4 @@
-package golibdave
+package dave
 
 import (
 	"log/slog"

@@ -9,7 +9,6 @@ import (
 
 	"github.com/disgoorg/disgo/cache"
 	"github.com/disgoorg/disgo/voice"
-	"github.com/disgoorg/godave/golibdave"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/vextryl/vexbot/internal/audio"
 	"github.com/vextryl/vexbot/internal/dave"
@@ -56,7 +55,7 @@ func newVoiceManager(
 		},
 		userID,
 		voice.WithLogger(dave.NewRateLimitedLogger(slog.Default())),
-		voice.WithDaveSessionCreateFunc(golibdave.NewSession),
+		voice.WithDaveSessionCreateFunc(dave.NewSession),
 	)
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/voice"
+	discordbot "github.com/vextryl/vexbot/internal/discord"
 )
 
 func onApplicationCommandInteraction(
@@ -104,7 +105,7 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, caches cache.
 		})
 		return
 	}
-	session.DisplayNames = snapshotDisplayNames(caches, *guildID, session.Files)
+	session.DisplayNames = discordbot.SnapshotDisplayNames(caches, *guildID, session.Files)
 	if renamedFiles, err := renameRecordingFiles(session.Files, session.DisplayNames); err != nil {
 		fmt.Println("Error renaming recording files:", err)
 	} else {

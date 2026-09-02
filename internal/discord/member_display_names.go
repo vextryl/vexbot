@@ -1,4 +1,5 @@
-package vexbot
+// Package discord contains helpers that adapt Discord-specific data for VexBot.
+package discord
 
 import (
 	"github.com/vextryl/vexbot/internal/speaker"
@@ -8,11 +9,15 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 )
 
-type memberLookup interface {
+// MemberLookup provides the Discord member cache needed to snapshot speaker
+// names when recording stops.
+type MemberLookup interface {
 	Member(snowflake.ID, snowflake.ID) (discord.Member, bool)
 }
 
-func snapshotDisplayNames(lookup memberLookup, guildID snowflake.ID, recordings []wav.File) map[string]string {
+// SnapshotDisplayNames records each participant's effective Discord name so
+// later transcription does not depend on live Discord state.
+func SnapshotDisplayNames(lookup MemberLookup, guildID snowflake.ID, recordings []wav.File) map[string]string {
 	displayNames := make(map[string]string, len(recordings))
 	for _, recording := range recordings {
 		userID := recording.UserID.String()

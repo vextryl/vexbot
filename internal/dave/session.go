@@ -2,7 +2,7 @@
 //
 // This file is derived from github.com/disgoorg/godave/golibdave v0.3.0.
 // See UPSTREAM.md for the local patch rationale.
-package golibdave
+package dave
 
 import (
 	"log/slog"
