@@ -1,4 +1,4 @@
-package main
+package audio
 
 import (
 	"fmt"
@@ -14,7 +14,7 @@ const (
 	audioTimestampTolerance = time.Millisecond
 )
 
-type AudioChunk struct {
+type Chunk struct {
 	UserID     snowflake.ID
 	Samples    []int16
 	SampleRate int
@@ -22,10 +22,10 @@ type AudioChunk struct {
 	Timestamp  time.Duration
 }
 
-type SessionAudioBuffer struct {
+type SegmentBuffer struct {
 	mu       sync.Mutex
 	speakers map[snowflake.ID]*speakerBuffer
-	sink     AudioChunkSink
+	sink     ChunkSink
 	closed   bool
 }
 
@@ -38,13 +38,13 @@ type speakerBuffer struct {
 	timer         *time.Timer
 }
 
-type AudioChunkSink interface {
-	ConsumeAudioChunk(AudioChunk)
+type ChunkSink interface {
+	ConsumeChunk(Chunk)
 }
 
 type discardAudioChunkSink struct{}
 
-func (discardAudioChunkSink) ConsumeAudioChunk(chunk AudioChunk) {
+func (discardAudioChunkSink) ConsumeChunk(chunk Chunk) {
 	fmt.Printf(
 		"AUDIO: user=%v chunk=%.1fs timestamp=%.1fs\n",
 		chunk.UserID,
@@ -54,14 +54,14 @@ func (discardAudioChunkSink) ConsumeAudioChunk(chunk AudioChunk) {
 	)
 }
 
-func NewSessionAudioBuffer(sink AudioChunkSink) *SessionAudioBuffer {
-	return &SessionAudioBuffer{
+func NewSegmentBuffer(sink ChunkSink) *SegmentBuffer {
+	return &SegmentBuffer{
 		speakers: make(map[snowflake.ID]*speakerBuffer),
 		sink:     sink,
 	}
 }
 
-func (b *SessionAudioBuffer) flushSpeaker(userID snowflake.ID) {
+func (b *SegmentBuffer) flushSpeaker(userID snowflake.ID) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -77,7 +77,7 @@ func (b *SessionAudioBuffer) flushSpeaker(userID snowflake.ID) {
 	b.flushSpeakerLocked(userID, speaker)
 }
 
-func (b *SessionAudioBuffer) ConsumeAudioFrame(frame AudioFrame) {
+func (b *SegmentBuffer) ConsumeFrame(frame Frame) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -157,7 +157,7 @@ func timestampsMatch(first, second time.Duration) bool {
 	return difference <= audioTimestampTolerance
 }
 
-func (b *SessionAudioBuffer) CleanupUser(userID snowflake.ID) {
+func (b *SegmentBuffer) CleanupUser(userID snowflake.ID) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -169,7 +169,7 @@ func (b *SessionAudioBuffer) CleanupUser(userID snowflake.ID) {
 	delete(b.speakers, userID)
 }
 
-func (b *SessionAudioBuffer) flushSpeakerLocked(
+func (b *SegmentBuffer) flushSpeakerLocked(
 	userID snowflake.ID,
 	speaker *speakerBuffer,
 ) {
@@ -177,7 +177,7 @@ func (b *SessionAudioBuffer) flushSpeakerLocked(
 		return
 	}
 
-	b.sink.ConsumeAudioChunk(AudioChunk{
+	b.sink.ConsumeChunk(Chunk{
 		UserID:     userID,
 		Samples:    speaker.samples,
 		SampleRate: speaker.sampleRate,
@@ -188,7 +188,7 @@ func (b *SessionAudioBuffer) flushSpeakerLocked(
 	speaker.samples = make([]int16, 0, speaker.sampleRate*speaker.channels)
 }
 
-func (b *SessionAudioBuffer) Close() {
+func (b *SegmentBuffer) Close() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

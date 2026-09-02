@@ -1,10 +1,11 @@
-package main
+package vexbot
 
 import (
 	"testing"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/vextryl/vexbot/internal/speaker"
 )
 
 type testMemberLookup map[snowflake.ID]discord.Member
@@ -34,7 +35,7 @@ func TestSnapshotDisplayNamesUsesEffectiveNameAndIDFallback(t *testing.T) {
 }
 
 func TestDisplayNameForUserNormalizesInjectedWhitespace(t *testing.T) {
-	if got, want := displayNameForUser("42", map[string]string{"42": "Alex\n⚔️"}), "Alex ⚔️"; got != want {
+	if got, want := speaker.Resolve("42", map[string]string{"42": "Alex\n⚔️"}), "Alex ⚔️"; got != want {
 		t.Fatalf("display name = %q, want %q", got, want)
 	}
 }

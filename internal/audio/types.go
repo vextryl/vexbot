@@ -1,4 +1,4 @@
-package main
+package audio
 
 import (
 	"fmt"
@@ -8,7 +8,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 )
 
-type AudioFrame struct {
+type Frame struct {
 	UserID     snowflake.ID
 	Samples    []int16
 	SampleRate int
@@ -16,8 +16,8 @@ type AudioFrame struct {
 	Timestamp  time.Duration
 }
 
-type AudioSink interface {
-	ConsumeAudioFrame(AudioFrame)
+type FrameSink interface {
+	ConsumeFrame(Frame)
 }
 
 type discardAudioSink struct {
@@ -26,7 +26,7 @@ type discardAudioSink struct {
 	reported map[snowflake.ID]time.Duration
 }
 
-func (s *discardAudioSink) ConsumeAudioFrame(frame AudioFrame) {
+func (s *discardAudioSink) ConsumeFrame(frame Frame) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

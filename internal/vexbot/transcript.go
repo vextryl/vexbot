@@ -1,4 +1,4 @@
-package main
+package vexbot
 
 import (
 	"fmt"
@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/vextryl/vexbot/internal/speaker"
 )
 
 const combinedTranscriptFileName = "transcript.txt"
@@ -27,7 +29,7 @@ func writeCombinedTranscript(directory string, displayNames map[string]string, r
 			&output,
 			"[%s] %s: %s\n",
 			formatTranscriptTimestamp(line.SessionStart),
-			displayNameForUser(line.UserID, displayNames),
+			speaker.Resolve(line.UserID, displayNames),
 			line.Text,
 		)
 	}

@@ -1,4 +1,4 @@
-package main
+package audio
 
 import (
 	"fmt"
@@ -27,15 +27,19 @@ type decoderState struct {
 type audioReceiver struct {
 	mu       sync.Mutex
 	decoders map[snowflake.ID]*decoderState
-	sink     AudioSink
-	session  *VoiceSession
+	sink     FrameSink
+	clock    Clock
 }
 
-func newAudioReceiver(sink AudioSink, session *VoiceSession) *audioReceiver {
+type Clock interface {
+	Timestamp() time.Duration
+}
+
+func NewOpusReceiver(sink FrameSink, clock Clock) *audioReceiver {
 	return &audioReceiver{
 		decoders: make(map[snowflake.ID]*decoderState),
 		sink:     sink,
-		session:  session,
+		clock:    clock,
 	}
 }
 
@@ -46,7 +50,7 @@ func (r *audioReceiver) audioTimestamp(
 	if state.rtpStartTimestamp == nil {
 		start := packetTimestamp
 		state.rtpStartTimestamp = &start
-		state.sessionStartTime = r.session.Timestamp()
+		state.sessionStartTime = r.clock.Timestamp()
 
 		return state.sessionStartTime
 	}
@@ -90,7 +94,7 @@ func (r *audioReceiver) ReceiveOpusFrame(
 		return nil
 	}
 
-	frame := AudioFrame{
+	frame := Frame{
 		UserID:     userID,
 		Samples:    append([]int16(nil), state.pcm[:samples*opusChannels]...),
 		SampleRate: opusSampleRate,
@@ -98,7 +102,7 @@ func (r *audioReceiver) ReceiveOpusFrame(
 		Timestamp:  r.audioTimestamp(state, packet.Timestamp),
 	}
 
-	r.sink.ConsumeAudioFrame(frame)
+	r.sink.ConsumeFrame(frame)
 
 	return nil
 }

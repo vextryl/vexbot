@@ -1,4 +1,4 @@
-package main
+package vexbot
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/disgoorg/disgo/voice"
 	"github.com/disgoorg/godave/golibdave"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/vextryl/vexbot/internal/audio"
 )
 
 func botUserIDFromToken(token string) (snowflake.ID, error) {
@@ -93,7 +94,7 @@ func joinUserVoiceChannel(
 		return nil, err
 	}
 
-	receiver := newAudioReceiver(session.AudioBuffer(), session)
+	receiver := audio.NewOpusReceiver(session.AudioBuffer(), session)
 	conn.SetOpusFrameReceiver(receiver)
 
 	return session, nil

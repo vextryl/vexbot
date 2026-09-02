@@ -1,4 +1,4 @@
-package main
+package vexbot
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/disgoorg/disgo/voice"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/vextryl/vexbot/internal/audio"
 )
 
 type VoiceSession struct {
@@ -16,7 +17,7 @@ type VoiceSession struct {
 	guildID   snowflake.ID
 	ownerID   snowflake.ID
 	conn      voice.Conn
-	buffer    *SessionAudioBuffer
+	buffer    *audio.SegmentBuffer
 	recorder  *wavRecorder
 	stopped   bool
 }
@@ -34,7 +35,7 @@ func NewVoiceSession(guildID, ownerID snowflake.ID, conn voice.Conn) (*VoiceSess
 		ownerID:   ownerID,
 		conn:      conn,
 		recorder:  recorder,
-		buffer:    NewSessionAudioBuffer(recorder),
+		buffer:    audio.NewSegmentBuffer(recorder),
 	}, nil
 }
 
@@ -54,7 +55,7 @@ func (s *VoiceSession) RecordingFiles() []RecordingFile {
 	return s.recorder.Files()
 }
 
-func (s *VoiceSession) AudioBuffer() *SessionAudioBuffer {
+func (s *VoiceSession) AudioBuffer() *audio.SegmentBuffer {
 	return s.buffer
 }
 

@@ -1,4 +1,4 @@
-package main
+package vexbot
 
 import (
 	"errors"
@@ -8,6 +8,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/vextryl/vexbot/internal/speaker"
 )
 
 const maxRecordingFileStemBytes = 180
@@ -32,7 +34,7 @@ func renameRecordingFiles(files []RecordingFile, displayNames map[string]string)
 		sourcePaths[filepath.Clean(file.Path)] = struct{}{}
 	}
 	for index, file := range files {
-		stem := uniqueRecordingFileStem(displayNameForUser(file.UserID.String(), displayNames), file.UserID.String(), usedStems)
+		stem := uniqueRecordingFileStem(speaker.Resolve(file.UserID.String(), displayNames), file.UserID.String(), usedStems)
 		destination := filepath.Join(filepath.Dir(file.Path), stem+filepath.Ext(file.Path))
 		if _, source := sourcePaths[filepath.Clean(destination)]; !source {
 			if _, err := os.Stat(destination); err == nil {

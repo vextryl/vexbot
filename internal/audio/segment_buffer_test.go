@@ -1,4 +1,4 @@
-package main
+package audio
 
 import (
 	"testing"
@@ -7,22 +7,22 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 )
 
-type collectedAudioChunks []AudioChunk
+type collectedAudioChunks []Chunk
 
-func (c *collectedAudioChunks) ConsumeAudioChunk(chunk AudioChunk) {
+func (c *collectedAudioChunks) ConsumeChunk(chunk Chunk) {
 	*c = append(*c, chunk)
 }
 
-func TestSessionAudioBufferSplitsTimestampGaps(t *testing.T) {
+func TestSegmentBufferSplitsTimestampGaps(t *testing.T) {
 	var chunks collectedAudioChunks
-	buffer := NewSessionAudioBuffer(&chunks)
+	buffer := NewSegmentBuffer(&chunks)
 	userID := snowflake.ID(42)
 
-	buffer.ConsumeAudioFrame(AudioFrame{
+	buffer.ConsumeFrame(Frame{
 		UserID: userID, Samples: []int16{1, 2}, SampleRate: 2, Channels: 1,
 		Timestamp: time.Second,
 	})
-	buffer.ConsumeAudioFrame(AudioFrame{
+	buffer.ConsumeFrame(Frame{
 		UserID: userID, Samples: []int16{3, 4}, SampleRate: 2, Channels: 1,
 		Timestamp: 3 * time.Second,
 	})

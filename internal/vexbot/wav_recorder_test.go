@@ -1,4 +1,4 @@
-package main
+package vexbot
 
 import (
 	"encoding/binary"
@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/vextryl/vexbot/internal/audio"
 )
 
 func TestWAVRecorderWritesFinalizedPCMFile(t *testing.T) {
@@ -17,7 +18,7 @@ func TestWAVRecorderWritesFinalizedPCMFile(t *testing.T) {
 	userID := snowflake.ID(42)
 	samples := []int16{-32768, -1, 0, 32767}
 
-	recorder.ConsumeAudioChunk(AudioChunk{
+	recorder.ConsumeChunk(audio.Chunk{
 		UserID:     userID,
 		Samples:    samples,
 		SampleRate: 48000,
@@ -50,15 +51,15 @@ func TestWAVRecorderWritesTimeline(t *testing.T) {
 	dir := t.TempDir()
 	recorder := newTestWAVRecorder(dir)
 
-	recorder.ConsumeAudioChunk(AudioChunk{
+	recorder.ConsumeChunk(audio.Chunk{
 		UserID: 42, Samples: []int16{1, 2}, SampleRate: 2, Channels: 1,
 		Timestamp: time.Second,
 	})
-	recorder.ConsumeAudioChunk(AudioChunk{
+	recorder.ConsumeChunk(audio.Chunk{
 		UserID: 7, Samples: []int16{3, 4}, SampleRate: 2, Channels: 1,
 		Timestamp: 1500 * time.Millisecond,
 	})
-	recorder.ConsumeAudioChunk(AudioChunk{
+	recorder.ConsumeChunk(audio.Chunk{
 		UserID: 42, Samples: []int16{5, 6}, SampleRate: 2, Channels: 1,
 		Timestamp: 2 * time.Second,
 	})

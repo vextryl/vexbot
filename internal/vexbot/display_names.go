@@ -1,8 +1,7 @@
-package main
+package vexbot
 
 import (
-	"strings"
-	"unicode"
+	"github.com/vextryl/vexbot/internal/speaker"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
@@ -17,7 +16,7 @@ func snapshotDisplayNames(lookup memberLookup, guildID snowflake.ID, recordings 
 	for _, recording := range recordings {
 		userID := recording.UserID.String()
 		if member, ok := lookup.Member(guildID, recording.UserID); ok {
-			if displayName := normalizeDisplayName(member.EffectiveName()); displayName != "" {
+			if displayName := speaker.Normalize(member.EffectiveName()); displayName != "" {
 				displayNames[userID] = displayName
 				continue
 			}
@@ -25,17 +24,4 @@ func snapshotDisplayNames(lookup memberLookup, guildID snowflake.ID, recordings 
 		displayNames[userID] = userID
 	}
 	return displayNames
-}
-
-func displayNameForUser(userID string, displayNames map[string]string) string {
-	if displayName := normalizeDisplayName(displayNames[userID]); displayName != "" {
-		return displayName
-	}
-	return userID
-}
-
-func normalizeDisplayName(displayName string) string {
-	return strings.Join(strings.FieldsFunc(displayName, func(character rune) bool {
-		return unicode.IsSpace(character) || unicode.IsControl(character)
-	}), " ")
 }

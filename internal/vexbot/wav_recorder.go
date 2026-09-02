@@ -1,4 +1,4 @@
-package main
+package vexbot
 
 import (
 	"bufio"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/vextryl/vexbot/internal/audio"
 )
 
 const (
@@ -103,7 +104,7 @@ func (r *wavRecorder) Files() []RecordingFile {
 	return files
 }
 
-func (r *wavRecorder) ConsumeAudioChunk(chunk AudioChunk) {
+func (r *wavRecorder) ConsumeChunk(chunk audio.Chunk) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -202,8 +203,8 @@ func (r *wavRecorder) setError(err error) {
 func (r *wavRecorder) recordSpan(span recordingSpan) {
 	if lastIndex, ok := r.lastSpan[span.UserID]; ok {
 		last := &r.spans[lastIndex]
-		if timestampsMatch(last.SessionEnd, span.SessionStart) &&
-			timestampsMatch(last.WAVEnd, span.WAVStart) {
+		if recordingTimestampsMatch(last.SessionEnd, span.SessionStart) &&
+			recordingTimestampsMatch(last.WAVEnd, span.WAVStart) {
 			last.SessionEnd = span.SessionEnd
 			last.WAVEnd = span.WAVEnd
 			return
@@ -212,6 +213,14 @@ func (r *wavRecorder) recordSpan(span recordingSpan) {
 
 	r.lastSpan[span.UserID] = len(r.spans)
 	r.spans = append(r.spans, span)
+}
+
+func recordingTimestampsMatch(first, second time.Duration) bool {
+	difference := first - second
+	if difference < 0 {
+		difference = -difference
+	}
+	return difference <= time.Millisecond
 }
 
 func (r *wavRecorder) writeTimeline() error {
@@ -261,7 +270,7 @@ func (r *wavRecorder) writeTimeline() error {
 	return os.Rename(temporaryPath, filepath.Join(r.dir, timelineFileName))
 }
 
-func chunkDuration(chunk AudioChunk) time.Duration {
+func chunkDuration(chunk audio.Chunk) time.Duration {
 	frames := len(chunk.Samples) / chunk.Channels
 	return time.Duration(frames) * time.Second / time.Duration(chunk.SampleRate)
 }
