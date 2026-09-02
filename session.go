@@ -183,6 +183,13 @@ func (m *SessionManager) StartTranscription(session StoppedSession) bool {
 				len(result.Transcription.Tokens),
 			)
 		}
+
+		transcriptPath, lineCount, err := writeCombinedTranscript(session.Directory, results)
+		if err != nil {
+			fmt.Printf("Error writing combined transcript: %v\n", err)
+			return
+		}
+		fmt.Printf("Combined transcript saved to %s (%d line(s))\n", transcriptPath, lineCount)
 	}()
 
 	return true

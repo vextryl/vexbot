@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,10 +9,7 @@ import (
 	"time"
 )
 
-const (
-	combinedTranscriptFileName  = "transcript.txt"
-	transcriptContinuationLimit = 5 * time.Second
-)
+const combinedTranscriptFileName = "transcript.txt"
 
 type transcriptLine struct {
 	UserID       string
@@ -22,24 +18,8 @@ type transcriptLine struct {
 	Text         string
 }
 
-func writeCombinedTranscript(directory string, transcriptions map[string]Transcription) (string, int, error) {
-	contents, err := os.ReadFile(filepath.Join(directory, timelineFileName))
-	if err != nil {
-		return "", 0, fmt.Errorf("read session timeline: %w", err)
-	}
-
-	var timeline sessionTimeline
-	if err := json.Unmarshal(contents, &timeline); err != nil {
-		return "", 0, fmt.Errorf("parse session timeline: %w", err)
-	}
-	if timeline.Version != 1 {
-		return "", 0, fmt.Errorf("unsupported session timeline version %d", timeline.Version)
-	}
-
-	lines, err := buildTranscriptLines(timeline, transcriptions)
-	if err != nil {
-		return "", 0, err
-	}
+func writeCombinedTranscript(directory string, results []TurnTranscription) (string, int, error) {
+	lines := buildTranscriptLines(results)
 
 	var output strings.Builder
 	for _, line := range lines {
@@ -60,165 +40,78 @@ func writeCombinedTranscript(directory string, transcriptions map[string]Transcr
 	return path, len(lines), nil
 }
 
-func buildTranscriptLines(timeline sessionTimeline, transcriptions map[string]Transcription) ([]transcriptLine, error) {
-	spansByUser := make(map[string][]timelineSpan)
-	for _, span := range timeline.Spans {
-		spansByUser[span.UserID] = append(spansByUser[span.UserID], span)
-	}
-	for _, spans := range spansByUser {
-		sort.Slice(spans, func(i, j int) bool {
-			return spans[i].WAVStartMS < spans[j].WAVStartMS
-		})
+func buildTranscriptLines(results []TurnTranscription) []transcriptLine {
+	type candidateLine struct {
+		transcriptLine
+		blankAudio bool
 	}
 
-	type lineKey struct {
-		userID    string
-		spanIndex int
-	}
-	lineText := make(map[lineKey]*strings.Builder)
-	lineStarts := make(map[lineKey]time.Duration)
-	lineEnds := make(map[lineKey]time.Duration)
-
-	for userID, transcription := range transcriptions {
-		spans := spansByUser[userID]
-		for tokenIndex, token := range transcription.Tokens {
-			spanIndex, ok := findTimelineSpan(spans, token.WAVStart)
-			if !ok {
-				return nil, fmt.Errorf("map token %d for user %s to session timeline", tokenIndex, userID)
-			}
-
-			span := spans[spanIndex]
-			key := lineKey{userID: userID, spanIndex: spanIndex}
-			if lineText[key] == nil {
-				lineText[key] = &strings.Builder{}
-				lineStarts[key] = time.Duration(span.SessionStartMS)*time.Millisecond +
-					(token.WAVStart - time.Duration(span.WAVStartMS)*time.Millisecond)
-				lineEnds[key] = time.Duration(span.SessionEndMS) * time.Millisecond
-			}
-			lineText[key].WriteString(token.Text)
+	candidates := make([]candidateLine, 0, len(results))
+	for _, result := range results {
+		if result.Err != nil {
+			candidates = append(candidates, candidateLine{transcriptLine: transcriptLine{
+				UserID:       result.Turn.UserID,
+				SessionStart: result.Turn.SessionStart,
+				SessionEnd:   result.Turn.SessionEnd,
+			}})
+			continue
 		}
-	}
 
-	lines := make([]transcriptLine, 0, len(lineText))
-	for key, text := range lineText {
-		if value := strings.TrimSpace(text.String()); value != "" {
-			lines = append(lines, transcriptLine{
-				UserID:       key.userID,
-				SessionStart: lineStarts[key],
-				SessionEnd:   lineEnds[key],
+		var text strings.Builder
+		for _, token := range result.Transcription.Tokens {
+			text.WriteString(token.Text)
+		}
+		value := strings.TrimSpace(text.String())
+		if value == "" {
+			candidates = append(candidates, candidateLine{transcriptLine: transcriptLine{
+				UserID:       result.Turn.UserID,
+				SessionStart: result.Turn.SessionStart,
+				SessionEnd:   result.Turn.SessionEnd,
+			}})
+			continue
+		}
+		candidates = append(candidates, candidateLine{
+			transcriptLine: transcriptLine{
+				UserID:       result.Turn.UserID,
+				SessionStart: result.Turn.SessionStart,
+				SessionEnd:   result.Turn.SessionEnd,
 				Text:         value,
-			})
-		}
-	}
-	sort.Slice(lines, func(i, j int) bool {
-		if lines[i].SessionStart == lines[j].SessionStart {
-			return lines[i].UserID < lines[j].UserID
-		}
-		return lines[i].SessionStart < lines[j].SessionStart
-	})
-
-	return mergeTranscriptContinuations(lines), nil
-}
-
-func mergeTranscriptContinuations(lines []transcriptLine) []transcriptLine {
-	linesByUser := make(map[string][]transcriptLine)
-	for _, line := range lines {
-		linesByUser[line.UserID] = append(linesByUser[line.UserID], line)
-	}
-
-	merged := make([]transcriptLine, 0, len(lines))
-	for _, speakerLines := range linesByUser {
-		sort.Slice(speakerLines, func(i, j int) bool {
-			return speakerLines[i].SessionStart < speakerLines[j].SessionStart
+			},
+			blankAudio: strings.EqualFold(value, "[BLANK_AUDIO]"),
 		})
-
-		speakerMerged := make([]transcriptLine, 0, len(speakerLines))
-		for _, line := range speakerLines {
-			if len(speakerMerged) > 0 {
-				punctuation, remainder := splitLeadingTranscriptPunctuation(line.Text)
-				if punctuation != "" {
-					last := len(speakerMerged) - 1
-					speakerMerged[last].Text += punctuation
-					if line.SessionEnd > speakerMerged[last].SessionEnd {
-						speakerMerged[last].SessionEnd = line.SessionEnd
-					}
-					line.Text = remainder
-				}
-			}
-			if strings.TrimSpace(line.Text) == "" {
-				continue
-			}
-
-			last := len(speakerMerged) - 1
-			if last >= 0 && canContinueTranscriptLine(speakerMerged[last], line) {
-				speakerMerged[last].Text = joinTranscriptText(speakerMerged[last].Text, line.Text)
-				speakerMerged[last].SessionEnd = line.SessionEnd
-				continue
-			}
-			speakerMerged = append(speakerMerged, line)
-		}
-		merged = append(merged, speakerMerged...)
 	}
 
-	sort.Slice(merged, func(i, j int) bool {
-		if merged[i].SessionStart == merged[j].SessionStart {
-			return merged[i].UserID < merged[j].UserID
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].SessionStart == candidates[j].SessionStart {
+			return candidates[i].UserID < candidates[j].UserID
 		}
-		return merged[i].SessionStart < merged[j].SessionStart
+		return candidates[i].SessionStart < candidates[j].SessionStart
 	})
 
-	return merged
-}
-
-func canContinueTranscriptLine(first, second transcriptLine) bool {
-	return first.UserID == second.UserID &&
-		!endsTranscriptSentence(first.Text) &&
-		second.SessionStart-first.SessionEnd <= transcriptContinuationLimit
-}
-
-func endsTranscriptSentence(text string) bool {
-	return strings.HasSuffix(strings.TrimSpace(text), ".") ||
-		strings.HasSuffix(strings.TrimSpace(text), "!") ||
-		strings.HasSuffix(strings.TrimSpace(text), "?")
-}
-
-func joinTranscriptText(first, second string) string {
-	second = strings.TrimSpace(second)
-	if second == "" {
-		return first
-	}
-	if strings.HasPrefix(second, ".") || strings.HasPrefix(second, ",") ||
-		strings.HasPrefix(second, "!") || strings.HasPrefix(second, "?") ||
-		strings.HasPrefix(second, ";") || strings.HasPrefix(second, ":") ||
-		strings.HasPrefix(second, "'") {
-		return first + second
-	}
-	return first + " " + second
-}
-
-func splitLeadingTranscriptPunctuation(text string) (string, string) {
-	text = strings.TrimSpace(text)
-	end := 0
-	for _, character := range text {
-		if !strings.ContainsRune(".,!?;:)", character) {
-			break
+	lines := make([]transcriptLine, 0, len(candidates))
+	for index := 0; index < len(candidates); {
+		if !candidates[index].blankAudio {
+			if candidates[index].Text != "" {
+				lines = append(lines, candidates[index].transcriptLine)
+			}
+			index++
+			continue
 		}
-		end += len(string(character))
-	}
 
-	return text[:end], strings.TrimSpace(text[end:])
-}
-
-func findTimelineSpan(spans []timelineSpan, wavTime time.Duration) (int, bool) {
-	for index, span := range spans {
-		start := time.Duration(span.WAVStartMS) * time.Millisecond
-		end := time.Duration(span.WAVEndMS) * time.Millisecond
-		if wavTime >= start && wavTime < end {
-			return index, true
+		runEnd := index + 1
+		for runEnd < len(candidates) && candidates[runEnd].blankAudio {
+			runEnd++
 		}
+		if runEnd-index > 1 {
+			for _, candidate := range candidates[index:runEnd] {
+				candidate.Text = "[unintelligible audio]"
+				lines = append(lines, candidate.transcriptLine)
+			}
+		}
+		index = runEnd
 	}
 
-	return 0, false
+	return lines
 }
 
 func formatTranscriptTimestamp(timestamp time.Duration) string {
