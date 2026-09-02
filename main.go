@@ -1,7 +1,7 @@
 package main
 
-import "github.com/vextryl/vexbot/internal/vexbot"
+import "github.com/vextryl/vexbot/internal/app"
 
 func main() {
-	vexbot.Run()
+	app.Run()
 }

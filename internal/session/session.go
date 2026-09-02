@@ -1,4 +1,6 @@
-package vexbot
+// Package session manages active voice recording sessions and post-recording
+// transcription work.
+package session
 
 import (
 	"context"
@@ -15,7 +17,7 @@ import (
 	"github.com/vextryl/vexbot/internal/whisper"
 )
 
-type VoiceSession struct {
+type Session struct {
 	mu        sync.Mutex
 	startedAt time.Time
 	guildID   snowflake.ID
@@ -26,14 +28,14 @@ type VoiceSession struct {
 	stopped   bool
 }
 
-func NewVoiceSession(guildID, ownerID snowflake.ID, conn voice.Conn) (*VoiceSession, error) {
+func New(guildID, ownerID snowflake.ID, conn voice.Conn) (*Session, error) {
 	startedAt := time.Now()
 	recorder, err := wav.NewRecorder(guildID, startedAt)
 	if err != nil {
 		return nil, err
 	}
 
-	return &VoiceSession{
+	return &Session{
 		startedAt: startedAt,
 		guildID:   guildID,
 		ownerID:   ownerID,
@@ -43,27 +45,27 @@ func NewVoiceSession(guildID, ownerID snowflake.ID, conn voice.Conn) (*VoiceSess
 	}, nil
 }
 
-func (s *VoiceSession) Timestamp() time.Duration {
+func (s *Session) Timestamp() time.Duration {
 	return time.Since(s.startedAt)
 }
 
-func (s *VoiceSession) OwnerID() snowflake.ID {
+func (s *Session) OwnerID() snowflake.ID {
 	return s.ownerID
 }
 
-func (s *VoiceSession) RecorderDirectory() string {
+func (s *Session) RecorderDirectory() string {
 	return s.recorder.Directory()
 }
 
-func (s *VoiceSession) RecordingFiles() []wav.File {
+func (s *Session) RecordingFiles() []wav.File {
 	return s.recorder.Files()
 }
 
-func (s *VoiceSession) AudioBuffer() *audio.SegmentBuffer {
+func (s *Session) AudioBuffer() *audio.SegmentBuffer {
 	return s.buffer
 }
 
-func (s *VoiceSession) Stop(ctx context.Context) error {
+func (s *Session) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	if s.stopped {
 		s.mu.Unlock()
@@ -81,22 +83,40 @@ func (s *VoiceSession) Stop(ctx context.Context) error {
 	return nil
 }
 
-type SessionManager struct {
+// Abort closes recording resources after joining the voice channel fails. The
+// connection itself is owned and removed by the voice manager.
+func (s *Session) Abort() error {
+	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
+		return nil
+	}
+	s.stopped = true
+	s.mu.Unlock()
+
+	s.buffer.Close()
+	if err := s.recorder.Close(); err != nil {
+		return fmt.Errorf("close recording: %w", err)
+	}
+	return nil
+}
+
+type Manager struct {
 	mu          sync.Mutex
-	sessions    map[snowflake.ID]*VoiceSession
+	sessions    map[snowflake.ID]*Session
 	starting    map[snowflake.ID]struct{}
 	transcriber whisper.Transcriber
 }
 
-func NewSessionManager(transcriber whisper.Transcriber) *SessionManager {
-	return &SessionManager{
-		sessions:    make(map[snowflake.ID]*VoiceSession),
+func NewManager(transcriber whisper.Transcriber) *Manager {
+	return &Manager{
+		sessions:    make(map[snowflake.ID]*Session),
 		starting:    make(map[snowflake.ID]struct{}),
 		transcriber: transcriber,
 	}
 }
 
-func (m *SessionManager) Reserve(guildID snowflake.ID) bool {
+func (m *Manager) Reserve(guildID snowflake.ID) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -111,7 +131,7 @@ func (m *SessionManager) Reserve(guildID snowflake.ID) bool {
 	return true
 }
 
-func (m *SessionManager) Start(session *VoiceSession) {
+func (m *Manager) Start(session *Session) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -119,46 +139,46 @@ func (m *SessionManager) Start(session *VoiceSession) {
 	m.sessions[session.guildID] = session
 }
 
-func (m *SessionManager) CancelReservation(guildID snowflake.ID) {
+func (m *Manager) CancelReservation(guildID snowflake.ID) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	delete(m.starting, guildID)
 }
 
-type StoppedSession struct {
+type StoppedRecording struct {
 	Directory    string
 	Files        []wav.File
 	DisplayNames map[string]string
 }
 
-func (m *SessionManager) Stop(ctx context.Context, guildID, userID snowflake.ID) (StoppedSession, error) {
+func (m *Manager) Stop(ctx context.Context, guildID, userID snowflake.ID) (StoppedRecording, error) {
 	m.mu.Lock()
 	session, ok := m.sessions[guildID]
 	m.mu.Unlock()
 
 	if !ok {
-		return StoppedSession{}, fmt.Errorf("there is no active recording session")
+		return StoppedRecording{}, fmt.Errorf("there is no active recording session")
 	}
 	if session.OwnerID() != userID {
-		return StoppedSession{}, fmt.Errorf("only the user who started the recording can stop it")
+		return StoppedRecording{}, fmt.Errorf("only the user who started the recording can stop it")
 	}
 
 	if err := session.Stop(ctx); err != nil {
-		return StoppedSession{}, err
+		return StoppedRecording{}, err
 	}
 
 	m.mu.Lock()
 	delete(m.sessions, guildID)
 	m.mu.Unlock()
 
-	return StoppedSession{
+	return StoppedRecording{
 		Directory: session.RecorderDirectory(),
 		Files:     session.RecordingFiles(),
 	}, nil
 }
 
-func (m *SessionManager) StartTranscription(session StoppedSession) bool {
+func (m *Manager) StartTranscription(session StoppedRecording) bool {
 	if m.transcriber == nil || len(session.Files) == 0 {
 		return false
 	}
@@ -210,10 +230,10 @@ func (m *SessionManager) StartTranscription(session StoppedSession) bool {
 	return true
 }
 
-func (m *SessionManager) Close(ctx context.Context) error {
+func (m *Manager) Close(ctx context.Context) error {
 	m.mu.Lock()
 	sessions := m.sessions
-	m.sessions = make(map[snowflake.ID]*VoiceSession)
+	m.sessions = make(map[snowflake.ID]*Session)
 	m.starting = make(map[snowflake.ID]struct{})
 	m.mu.Unlock()
 

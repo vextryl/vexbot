@@ -1,4 +1,4 @@
-package vexbot
+package recording
 
 import (
 	"os"
@@ -24,13 +24,13 @@ func TestRenameRecordingFilesUsesSafeDisplayNames(t *testing.T) {
 		}
 	}
 
-	renamed, err := renameRecordingFiles(files, map[string]string{
+	renamed, err := RenameFiles(files, map[string]string{
 		"42":  " Mörk 🐉 / GM:? ",
 		"99":  "CON",
 		"100": "Mörk 🐉 / GM:?",
 	})
 	if err != nil {
-		t.Fatalf("renameRecordingFiles() error = %v", err)
+		t.Fatalf("RenameFiles() error = %v", err)
 	}
 	if got, want := filepath.Base(renamed[0].Path), "Mörk 🐉 - GM--.wav"; got != want {
 		t.Fatalf("first filename = %q, want %q", got, want)

@@ -1,4 +1,4 @@
-package vexbot
+package discord
 
 import (
 	"context"
@@ -12,9 +12,12 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/vextryl/vexbot/internal/audio"
 	"github.com/vextryl/vexbot/internal/dave"
+	"github.com/vextryl/vexbot/internal/session"
 )
 
-func botUserIDFromToken(token string) (snowflake.ID, error) {
+// BotUserIDFromToken extracts the Discord application ID embedded in a bot
+// token for voice-manager setup.
+func BotUserIDFromToken(token string) (snowflake.ID, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) < 1 {
 		return 0, fmt.Errorf("invalid Discord bot token")
@@ -34,7 +37,8 @@ func botUserIDFromToken(token string) (snowflake.ID, error) {
 	return snowflake.ID(id), nil
 }
 
-func newVoiceManager(
+// NewVoiceManager creates the Discord voice manager used by VexBot.
+func NewVoiceManager(
 	updateVoiceState func(context.Context, snowflake.ID, *snowflake.ID, bool, bool) error, userID snowflake.ID,
 ) voice.Manager {
 	return voice.NewManager(
@@ -59,13 +63,15 @@ func newVoiceManager(
 	)
 }
 
-func joinUserVoiceChannel(
+// JoinUserVoiceChannel creates a recording session in the command user's
+// current voice channel.
+func JoinUserVoiceChannel(
 	ctx context.Context,
 	manager voice.Manager,
 	caches cache.Caches,
 	guildID snowflake.ID,
 	userID snowflake.ID,
-) (*VoiceSession, error) {
+) (*session.Session, error) {
 	voiceState, ok := caches.VoiceState(guildID, userID)
 	if !ok {
 		return nil, fmt.Errorf("user is not in a voice channel")
@@ -76,7 +82,7 @@ func joinUserVoiceChannel(
 	}
 
 	conn := manager.CreateConn(guildID)
-	session, err := NewVoiceSession(guildID, userID, conn)
+	voiceSession, err := session.New(guildID, userID, conn)
 	if err != nil {
 		return nil, err
 	}
@@ -88,14 +94,13 @@ func joinUserVoiceChannel(
 		false, // selfDeaf
 	)
 	if err != nil {
-		session.AudioBuffer().Close()
-		_ = session.recorder.Close()
+		_ = voiceSession.Abort()
 		manager.RemoveConn(guildID)
 		return nil, err
 	}
 
-	receiver := audio.NewOpusReceiver(session.AudioBuffer(), session)
+	receiver := audio.NewOpusReceiver(voiceSession.AudioBuffer(), voiceSession)
 	conn.SetOpusFrameReceiver(receiver)
 
-	return session, nil
+	return voiceSession, nil
 }

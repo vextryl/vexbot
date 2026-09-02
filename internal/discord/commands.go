@@ -1,4 +1,4 @@
-package vexbot
+package discord
 
 import (
 	"fmt"
@@ -23,7 +23,8 @@ var stopCommand = discord.SlashCommandCreate{
 	Description: "Stop recording and leave the voice channel",
 }
 
-func registerCommands(client *bot.Client, guildID string) error {
+// RegisterCommands installs VexBot's slash commands for a development guild.
+func RegisterCommands(client *bot.Client, guildID string) error {
 	guild, err := snowflake.Parse(guildID)
 	if err != nil {
 		return err

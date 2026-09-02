@@ -1,4 +1,5 @@
-package vexbot
+// Package recording manages files created for a recorded voice session.
+package recording
 
 import (
 	"errors"
@@ -27,7 +28,9 @@ type recordingRename struct {
 	destination string
 }
 
-func renameRecordingFiles(files []wav.File, displayNames map[string]string) ([]wav.File, error) {
+// RenameFiles replaces user-ID recording names with safe, unique display-name
+// filenames. It rolls back any completed renames if a later rename fails.
+func RenameFiles(files []wav.File, displayNames map[string]string) ([]wav.File, error) {
 	planned := make([]recordingRename, len(files))
 	usedStems := make(map[string]struct{}, len(files))
 	sourcePaths := make(map[string]struct{}, len(files))

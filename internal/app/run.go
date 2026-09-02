@@ -1,4 +1,5 @@
-package vexbot
+// Package app assembles VexBot's runtime dependencies and runs the bot.
+package app
 
 import (
 	"context"
@@ -14,6 +15,8 @@ import (
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/joho/godotenv"
+	discordbot "github.com/vextryl/vexbot/internal/discord"
+	"github.com/vextryl/vexbot/internal/session"
 	"github.com/vextryl/vexbot/internal/whisper"
 )
 
@@ -48,7 +51,7 @@ func Run() {
 	}
 
 	// disgo requires botUserID for the voice manager
-	botUserID, err := botUserIDFromToken(token)
+	botUserID, err := discordbot.BotUserIDFromToken(token)
 	if err != nil {
 		fmt.Println("Error getting bot user ID:", err)
 		return
@@ -59,7 +62,7 @@ func Run() {
 	// A closure lets us resolve that dependency after the client exists.
 	var client *bot.Client
 
-	voiceManager := newVoiceManager(
+	voiceManager := discordbot.NewVoiceManager(
 		func(
 			ctx context.Context,
 			guildID snowflake.ID,
@@ -77,7 +80,7 @@ func Run() {
 		},
 		botUserID,
 	)
-	sessions := NewSessionManager(transcriber)
+	sessions := session.NewManager(transcriber)
 
 	client, err = disgo.New(
 		token,
@@ -115,7 +118,7 @@ func Run() {
 	client.AddEventListeners(
 		&events.ListenerAdapter{
 			OnApplicationCommandInteraction: func(event *events.ApplicationCommandInteractionCreate) {
-				onApplicationCommandInteraction(event, client, voiceManager, sessions)
+				discordbot.HandleApplicationCommandInteraction(event, client, voiceManager, sessions)
 			},
 			OnGuildVoiceStateUpdate: func(event *events.GuildVoiceStateUpdate) {
 				channelID := "<nil>"
@@ -150,7 +153,7 @@ func Run() {
 	// status
 	fmt.Println("vexbot connected to discord")
 
-	err = registerCommands(client, guildID)
+	err = discordbot.RegisterCommands(client, guildID)
 	if err != nil {
 		fmt.Println("Error registering commands:", err)
 		return

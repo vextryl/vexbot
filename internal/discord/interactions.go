@@ -1,4 +1,4 @@
-package vexbot
+package discord
 
 import (
 	"context"
@@ -9,14 +9,16 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/voice"
-	discordbot "github.com/vextryl/vexbot/internal/discord"
+	"github.com/vextryl/vexbot/internal/recording"
+	"github.com/vextryl/vexbot/internal/session"
 )
 
-func onApplicationCommandInteraction(
+// HandleApplicationCommandInteraction dispatches VexBot slash commands.
+func HandleApplicationCommandInteraction(
 	event *events.ApplicationCommandInteractionCreate,
 	client *bot.Client,
 	voiceManager voice.Manager,
-	sessions *SessionManager,
+	sessions *session.Manager,
 ) {
 	switch event.SlashCommandInteractionData().CommandName() {
 	case "ping":
@@ -43,7 +45,7 @@ func handleJoin(
 	event *events.ApplicationCommandInteractionCreate,
 	client *bot.Client,
 	voiceManager voice.Manager,
-	sessions *SessionManager,
+	sessions *session.Manager,
 ) {
 	guildID := event.GuildID()
 	if guildID == nil {
@@ -71,7 +73,7 @@ func handleJoin(
 	}
 
 	go func() {
-		session, err := joinUserVoiceChannel(
+		session, err := JoinUserVoiceChannel(
 			context.Background(),
 			voiceManager,
 			client.Caches,
@@ -89,7 +91,7 @@ func handleJoin(
 	}()
 }
 
-func handleStop(event *events.ApplicationCommandInteractionCreate, caches cache.Caches, sessions *SessionManager) {
+func handleStop(event *events.ApplicationCommandInteractionCreate, caches cache.Caches, sessions *session.Manager) {
 	guildID := event.GuildID()
 	if guildID == nil {
 		_ = event.CreateMessage(discord.MessageCreate{
@@ -105,8 +107,8 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, caches cache.
 		})
 		return
 	}
-	session.DisplayNames = discordbot.SnapshotDisplayNames(caches, *guildID, session.Files)
-	if renamedFiles, err := renameRecordingFiles(session.Files, session.DisplayNames); err != nil {
+	session.DisplayNames = SnapshotDisplayNames(caches, *guildID, session.Files)
+	if renamedFiles, err := recording.RenameFiles(session.Files, session.DisplayNames); err != nil {
 		fmt.Println("Error renaming recording files:", err)
 	} else {
 		session.Files = renamedFiles
