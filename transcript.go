@@ -132,15 +132,32 @@ func mergeTranscriptContinuations(lines []transcriptLine) []transcriptLine {
 			return speakerLines[i].SessionStart < speakerLines[j].SessionStart
 		})
 
+		speakerMerged := make([]transcriptLine, 0, len(speakerLines))
 		for _, line := range speakerLines {
-			last := len(merged) - 1
-			if last >= 0 && canContinueTranscriptLine(merged[last], line) {
-				merged[last].Text = joinTranscriptText(merged[last].Text, line.Text)
-				merged[last].SessionEnd = line.SessionEnd
+			if len(speakerMerged) > 0 {
+				punctuation, remainder := splitLeadingTranscriptPunctuation(line.Text)
+				if punctuation != "" {
+					last := len(speakerMerged) - 1
+					speakerMerged[last].Text += punctuation
+					if line.SessionEnd > speakerMerged[last].SessionEnd {
+						speakerMerged[last].SessionEnd = line.SessionEnd
+					}
+					line.Text = remainder
+				}
+			}
+			if strings.TrimSpace(line.Text) == "" {
 				continue
 			}
-			merged = append(merged, line)
+
+			last := len(speakerMerged) - 1
+			if last >= 0 && canContinueTranscriptLine(speakerMerged[last], line) {
+				speakerMerged[last].Text = joinTranscriptText(speakerMerged[last].Text, line.Text)
+				speakerMerged[last].SessionEnd = line.SessionEnd
+				continue
+			}
+			speakerMerged = append(speakerMerged, line)
 		}
+		merged = append(merged, speakerMerged...)
 	}
 
 	sort.Slice(merged, func(i, j int) bool {
@@ -177,6 +194,19 @@ func joinTranscriptText(first, second string) string {
 		return first + second
 	}
 	return first + " " + second
+}
+
+func splitLeadingTranscriptPunctuation(text string) (string, string) {
+	text = strings.TrimSpace(text)
+	end := 0
+	for _, character := range text {
+		if !strings.ContainsRune(".,!?;:)", character) {
+			break
+		}
+		end += len(string(character))
+	}
+
+	return text[:end], strings.TrimSpace(text[end:])
 }
 
 func findTimelineSpan(spans []timelineSpan, wavTime time.Duration) (int, bool) {

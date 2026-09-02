@@ -70,6 +70,29 @@ func TestMergeTranscriptContinuations(t *testing.T) {
 	}
 }
 
+func TestMergeTranscriptContinuationsMovesLeadingPunctuation(t *testing.T) {
+	lines := mergeTranscriptContinuations([]transcriptLine{
+		{UserID: "alex", SessionStart: time.Second, SessionEnd: 2 * time.Second, Text: "Hello"},
+		{UserID: "alex", SessionStart: 10 * time.Second, SessionEnd: 11 * time.Second, Text: "? How are you?"},
+		{UserID: "alex", SessionStart: 20 * time.Second, SessionEnd: 21 * time.Second, Text: "The door"},
+		{UserID: "alex", SessionStart: 22 * time.Second, SessionEnd: 23 * time.Second, Text: "."},
+	})
+
+	want := []transcriptLine{
+		{UserID: "alex", SessionStart: time.Second, SessionEnd: 11 * time.Second, Text: "Hello?"},
+		{UserID: "alex", SessionStart: 10 * time.Second, SessionEnd: 11 * time.Second, Text: "How are you?"},
+		{UserID: "alex", SessionStart: 20 * time.Second, SessionEnd: 23 * time.Second, Text: "The door."},
+	}
+	if len(lines) != len(want) {
+		t.Fatalf("line count = %d, want %d", len(lines), len(want))
+	}
+	for index := range want {
+		if lines[index] != want[index] {
+			t.Fatalf("line %d = %#v, want %#v", index, lines[index], want[index])
+		}
+	}
+}
+
 func TestWriteCombinedTranscript(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, timelineFileName), []byte(`{

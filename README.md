@@ -12,7 +12,8 @@ also saved as `<discord-user-id>.json`.
 After all speaker transcriptions finish, VexBot writes a session-level
 `transcript.txt` ordered by the shared recording timeline.
 Nearby continuation spans from the same speaker are rendered as one readable
-utterance.
+utterance, with punctuation carried back to the preceding utterance when
+Whisper timestamps it separately.
 
 ## Roadmap
 
