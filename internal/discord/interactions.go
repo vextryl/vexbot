@@ -5,7 +5,6 @@ import (
 	"log/slog"
 
 	"github.com/disgoorg/disgo/bot"
-	"github.com/disgoorg/disgo/cache"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/voice"
@@ -29,7 +28,7 @@ func HandleApplicationCommandInteraction(
 		handleJoin(event, client, voiceManager, sessions, logger)
 
 	case "stop":
-		handleStop(event, client.Caches, sessions, logger)
+		handleStop(event, client, sessions, logger)
 	}
 }
 
@@ -79,12 +78,13 @@ func handleJoin(
 	}
 
 	go func() {
-		session, err := JoinUserVoiceChannel(
+		session, voiceChannelName, err := JoinUserVoiceChannel(
 			context.Background(),
 			voiceManager,
 			client.Caches,
 			*guildID,
 			user.ID,
+			event.Channel().ID(),
 			logger,
 		)
 		if err != nil {
@@ -98,6 +98,16 @@ func handleJoin(
 		}
 
 		sessions.Start(session)
+		message := "Recording started in #" + voiceChannelName + "."
+		if _, err := client.Rest.UpdateInteractionResponse(
+			event.ApplicationID(), event.Token(), discord.MessageUpdate{Content: &message},
+		); err != nil {
+			logError(logger, "updating join command response",
+				"err", err,
+				slog.String("guild_id", guildID.String()),
+				slog.String("user_id", user.ID.String()),
+			)
+		}
 		if logger != nil {
 			logger.Info("joined voice channel and started recording",
 				slog.String("guild_id", guildID.String()),
@@ -108,7 +118,7 @@ func handleJoin(
 	}()
 }
 
-func handleStop(event *events.ApplicationCommandInteractionCreate, caches cache.Caches, sessions *session.Manager, logger *slog.Logger) {
+func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.Client, sessions *session.Manager, logger *slog.Logger) {
 	guildID := event.GuildID()
 	if guildID == nil {
 		_ = event.CreateMessage(discord.MessageCreate{
@@ -129,7 +139,7 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, caches cache.
 		})
 		return
 	}
-	session.DisplayNames = SnapshotDisplayNames(caches, *guildID, session.Files)
+	session.DisplayNames = SnapshotDisplayNames(client.Caches, *guildID, session.Files)
 	if renamedFiles, err := recording.RenameFiles(session.Files, session.DisplayNames); err != nil {
 		logError(logger, "renaming recording files",
 			"err", err,
@@ -148,7 +158,14 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, caches cache.
 		)
 	}
 	message := "Recording stopped and I left the voice channel."
-	if sessions.StartTranscription(session) {
+	if completion, started := sessions.StartTranscription(session); started {
+		uploadCompletedTranscript(
+			completion,
+			*guildID,
+			session.TranscriptChannelID,
+			NewTranscriptUploader(client.Rest),
+			logger,
+		)
 		message += " Local transcription has started."
 	} else {
 		message += " Local transcription is not configured."

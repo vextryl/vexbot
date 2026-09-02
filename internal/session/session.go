@@ -19,17 +19,25 @@ import (
 )
 
 type Session struct {
-	mu        sync.Mutex
-	startedAt time.Time
-	guildID   snowflake.ID
-	ownerID   snowflake.ID
-	conn      voice.Conn
-	buffer    *audio.SegmentBuffer
-	recorder  *wav.Recorder
-	stopped   bool
+	mu                  sync.Mutex
+	startedAt           time.Time
+	guildID             snowflake.ID
+	ownerID             snowflake.ID
+	transcriptChannelID snowflake.ID
+	conn                voice.Conn
+	buffer              *audio.SegmentBuffer
+	recorder            recordingSink
+	stopped             bool
 }
 
-func New(guildID, ownerID snowflake.ID, conn voice.Conn, logger *slog.Logger) (*Session, error) {
+type recordingSink interface {
+	audio.ChunkSink
+	Close() error
+	Directory() string
+	Files() []wav.File
+}
+
+func New(guildID, ownerID, transcriptChannelID snowflake.ID, conn voice.Conn, logger *slog.Logger) (*Session, error) {
 	startedAt := time.Now()
 	recorder, err := wav.NewRecorder(guildID, startedAt)
 	if err != nil {
@@ -37,12 +45,13 @@ func New(guildID, ownerID snowflake.ID, conn voice.Conn, logger *slog.Logger) (*
 	}
 
 	return &Session{
-		startedAt: startedAt,
-		guildID:   guildID,
-		ownerID:   ownerID,
-		conn:      conn,
-		recorder:  recorder,
-		buffer:    audio.NewSegmentBuffer(recorder, logger),
+		startedAt:           startedAt,
+		guildID:             guildID,
+		ownerID:             ownerID,
+		transcriptChannelID: transcriptChannelID,
+		conn:                conn,
+		recorder:            recorder,
+		buffer:              audio.NewSegmentBuffer(recorder, logger),
 	}, nil
 }
 
@@ -75,7 +84,9 @@ func (s *Session) Stop(ctx context.Context) error {
 	s.stopped = true
 	s.mu.Unlock()
 
-	s.conn.Close(ctx)
+	if s.conn != nil {
+		s.conn.Close(ctx)
+	}
 	s.buffer.Close()
 	if err := s.recorder.Close(); err != nil {
 		return fmt.Errorf("close recording: %w", err)
@@ -107,6 +118,7 @@ type Manager struct {
 	sessions    map[snowflake.ID]*Session
 	starting    map[snowflake.ID]struct{}
 	transcriber whisper.Transcriber
+	transcribe  transcriptionRunner
 	logger      *slog.Logger
 }
 
@@ -115,6 +127,7 @@ func NewManager(transcriber whisper.Transcriber, logger *slog.Logger) *Manager {
 		sessions:    make(map[snowflake.ID]*Session),
 		starting:    make(map[snowflake.ID]struct{}),
 		transcriber: transcriber,
+		transcribe:  turn.Transcribe,
 		logger:      logger,
 	}
 }
@@ -150,11 +163,29 @@ func (m *Manager) CancelReservation(guildID snowflake.ID) {
 }
 
 type StoppedRecording struct {
-	GuildID      snowflake.ID
-	Directory    string
-	Files        []wav.File
-	DisplayNames map[string]string
+	GuildID             snowflake.ID
+	TranscriptChannelID snowflake.ID
+	Directory           string
+	Files               []wav.File
+	DisplayNames        map[string]string
 }
+
+// TranscriptionResult reports the outcome of asynchronous local
+// transcription. TranscriptPath and LineCount are set only on success.
+type TranscriptionResult struct {
+	TranscriptPath string
+	LineCount      int
+	Err            error
+}
+
+type transcriptionRunner func(
+	context.Context,
+	string,
+	[]wav.File,
+	whisper.Transcriber,
+	func(int),
+	func(int, int, turn.Result),
+) ([]turn.Result, error)
 
 func (m *Manager) Stop(ctx context.Context, guildID, userID snowflake.ID) (StoppedRecording, error) {
 	m.mu.Lock()
@@ -177,20 +208,26 @@ func (m *Manager) Stop(ctx context.Context, guildID, userID snowflake.ID) (Stopp
 	m.mu.Unlock()
 
 	return StoppedRecording{
-		GuildID:   guildID,
-		Directory: session.RecorderDirectory(),
-		Files:     session.RecordingFiles(),
+		GuildID:             guildID,
+		TranscriptChannelID: session.transcriptChannelID,
+		Directory:           session.RecorderDirectory(),
+		Files:               session.RecordingFiles(),
 	}, nil
 }
 
-func (m *Manager) StartTranscription(session StoppedRecording) bool {
+// StartTranscription begins asynchronous local transcription. It returns a
+// channel that receives exactly one completion result, plus false when local
+// transcription is unavailable for the recording.
+func (m *Manager) StartTranscription(session StoppedRecording) (<-chan TranscriptionResult, bool) {
 	if m.transcriber == nil || len(session.Files) == 0 {
-		return false
+		return nil, false
 	}
 
+	completion := make(chan TranscriptionResult, 1)
 	go func() {
+		defer close(completion)
 		nextProgressPercent := 10
-		results, err := turn.Transcribe(
+		results, err := m.transcribe(
 			context.Background(),
 			session.Directory,
 			session.Files,
@@ -232,6 +269,7 @@ func (m *Manager) StartTranscription(session StoppedRecording) bool {
 				slog.String("guild_id", session.GuildID.String()),
 				slog.String("directory", session.Directory),
 			)
+			completion <- TranscriptionResult{Err: fmt.Errorf("prepare local transcription: %w", err)}
 			return
 		}
 
@@ -254,6 +292,7 @@ func (m *Manager) StartTranscription(session StoppedRecording) bool {
 				slog.String("guild_id", session.GuildID.String()),
 				slog.String("directory", session.Directory),
 			)
+			completion <- TranscriptionResult{Err: fmt.Errorf("write combined transcript: %w", err)}
 			return
 		}
 		m.logInfo("combined transcript saved",
@@ -261,9 +300,13 @@ func (m *Manager) StartTranscription(session StoppedRecording) bool {
 			slog.String("path", transcriptPath),
 			slog.Int("line_count", lineCount),
 		)
+		completion <- TranscriptionResult{
+			TranscriptPath: transcriptPath,
+			LineCount:      lineCount,
+		}
 	}()
 
-	return true
+	return completion, true
 }
 
 func (m *Manager) logInfo(message string, args ...any) {
