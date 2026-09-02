@@ -105,6 +105,11 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, caches cache.
 		return
 	}
 	session.DisplayNames = snapshotDisplayNames(caches, *guildID, session.Files)
+	if renamedFiles, err := renameRecordingFiles(session.Files, session.DisplayNames); err != nil {
+		fmt.Println("Error renaming recording files:", err)
+	} else {
+		session.Files = renamedFiles
+	}
 
 	fmt.Printf("Recording stopped; files saved to %s\n", session.Directory)
 	message := "Recording stopped and I left the voice channel."
