@@ -12,6 +12,7 @@ import (
 	"github.com/disgoorg/godave/golibdave"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/vextryl/vexbot/internal/audio"
+	"github.com/vextryl/vexbot/internal/dave"
 )
 
 func botUserIDFromToken(token string) (snowflake.ID, error) {
@@ -54,7 +55,7 @@ func newVoiceManager(
 			)
 		},
 		userID,
-		voice.WithLogger(newDAVEDecryptRateLimitedLogger(slog.Default())),
+		voice.WithLogger(dave.NewRateLimitedLogger(slog.Default())),
 		voice.WithDaveSessionCreateFunc(golibdave.NewSession),
 	)
 }
