@@ -89,6 +89,15 @@ func TestFormatTranscriptStatusNormalizesProgressBar(t *testing.T) {
 	}
 }
 
+func TestFormatTranscriptStatusRendersTerminalFailures(t *testing.T) {
+	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "failed"}), "Transcription failed.\n[░░░░░░░░░░]\nLocal recordings were kept."; got != want {
+		t.Fatalf("failed status = %q, want %q", got, want)
+	}
+	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "delivery_failed", Percent: 100}), "Transcription complete.\n[██████████]\nDiscord delivery failed. The local transcript was kept."; got != want {
+		t.Fatalf("delivery failure status = %q, want %q", got, want)
+	}
+}
+
 type testTranscriptStatusSender struct {
 	createdChannelID snowflake.ID
 	created          discord.MessageCreate

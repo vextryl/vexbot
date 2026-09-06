@@ -12,6 +12,21 @@ type transcriptStatusMessage interface {
 	Update(snowflake.ID, snowflake.ID, TranscriptStatusUpdate) error
 }
 
+type transcriptDeliveryStatus interface {
+	transcriptStatusMessage
+	Complete(snowflake.ID, snowflake.ID, string, int) error
+}
+
+type activeTranscriptStatus struct {
+	guildID       snowflake.ID
+	channelID     snowflake.ID
+	messageID     snowflake.ID
+	status        transcriptStatusMessage
+	logger        *slog.Logger
+	lastThreshold int
+	terminal      bool
+}
+
 // startTranscriptProgressStatus creates a normal status message and updates it
 // asynchronously from session transcription progress. It returns false only
 // when the initial message could not be created.
@@ -21,6 +36,20 @@ func startTranscriptProgressStatus(
 	status transcriptStatusMessage,
 	logger *slog.Logger,
 ) bool {
+	active, ok := createTranscriptProgressStatus(guildID, channelID, status, logger)
+	if !ok {
+		return false
+	}
+
+	go active.updateProgress(progress)
+	return true
+}
+
+func createTranscriptProgressStatus(
+	guildID, channelID snowflake.ID,
+	status transcriptStatusMessage,
+	logger *slog.Logger,
+) (*activeTranscriptStatus, bool) {
 	messageID, err := status.Create(channelID, TranscriptStatusUpdate{Phase: string(session.TranscriptionPhasePreparing)})
 	if err != nil {
 		logError(logger, "creating transcription status message",
@@ -28,40 +57,54 @@ func startTranscriptProgressStatus(
 			slog.String("guild_id", guildID.String()),
 			slog.String("channel_id", channelID.String()),
 		)
-		return false
+		return nil, false
 	}
-
-	go updateTranscriptProgressStatus(progress, guildID, channelID, messageID, status, logger)
-	return true
+	return &activeTranscriptStatus{
+		guildID:   guildID,
+		channelID: channelID,
+		messageID: messageID,
+		status:    status,
+		logger:    logger,
+	}, true
 }
 
-func updateTranscriptProgressStatus(
-	progress <-chan session.TranscriptionProgress,
-	guildID, channelID, messageID snowflake.ID,
-	status transcriptStatusMessage,
-	logger *slog.Logger,
-) {
-	lastThreshold := 0
+func (s *activeTranscriptStatus) updateProgress(progress <-chan session.TranscriptionProgress) {
 	for update := range progress {
-		statusUpdate := transcriptStatusUpdateFromProgress(update)
-		if update.Phase == session.TranscriptionPhaseFailed {
-			updateTranscriptStatusMessage(status, channelID, messageID, statusUpdate, guildID, logger)
-			return
-		}
-
-		threshold := transcriptionProgressThreshold(update.Percent)
-		if threshold <= lastThreshold {
-			continue
-		}
-		statusUpdate.Percent = threshold
-		if !updateTranscriptStatusMessage(status, channelID, messageID, statusUpdate, guildID, logger) {
-			return
-		}
-		lastThreshold = threshold
-		if threshold == 100 {
+		if s.applyProgress(update) {
 			return
 		}
 	}
+}
+
+// applyProgress returns true when the update is terminal and no further
+// progress should be rendered for this status message.
+func (s *activeTranscriptStatus) applyProgress(update session.TranscriptionProgress) bool {
+	if s.terminal {
+		return true
+	}
+	statusUpdate := transcriptStatusUpdateFromProgress(update)
+	if update.Phase == session.TranscriptionPhaseFailed {
+		s.update(statusUpdate)
+		s.terminal = true
+		return true
+	}
+
+	threshold := transcriptionProgressThreshold(update.Percent)
+	if threshold <= s.lastThreshold {
+		return false
+	}
+	statusUpdate.Percent = threshold
+	if !s.update(statusUpdate) {
+		s.terminal = true
+		return true
+	}
+	s.lastThreshold = threshold
+	s.terminal = threshold == 100
+	return s.terminal
+}
+
+func (s *activeTranscriptStatus) update(update TranscriptStatusUpdate) bool {
+	return updateTranscriptStatusMessage(s.status, s.channelID, s.messageID, update, s.guildID, s.logger)
 }
 
 func transcriptStatusUpdateFromProgress(progress session.TranscriptionProgress) TranscriptStatusUpdate {

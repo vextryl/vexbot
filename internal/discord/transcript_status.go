@@ -104,6 +104,12 @@ func (s *TranscriptStatus) Complete(channelID, messageID snowflake.ID, transcrip
 // current local-transcription phase.
 func FormatTranscriptStatus(update TranscriptStatusUpdate) string {
 	percent := normalizeProgressPercent(update.Percent)
+	if update.Phase == "failed" {
+		return fmt.Sprintf("Transcription failed.\n%s\nLocal recordings were kept.", formatProgressBar(percent))
+	}
+	if update.Phase == "delivery_failed" {
+		return fmt.Sprintf("Transcription complete.\n%s\nDiscord delivery failed. The local transcript was kept.", formatProgressBar(percent))
+	}
 	return fmt.Sprintf(
 		"Transcription in progress…\n%s %d%%\n%s",
 		formatProgressBar(percent),
@@ -122,8 +128,6 @@ func formatTranscriptStatusPhase(update TranscriptStatusUpdate) string {
 		return "Combining the final transcript."
 	case "complete":
 		return "Transcript complete. Uploading…"
-	case "failed":
-		return "Transcription failed. Local recordings were kept."
 	default:
 		return "Processing local transcription."
 	}

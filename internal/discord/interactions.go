@@ -127,7 +127,7 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.C
 		return
 	}
 
-	session, err := sessions.Stop(context.Background(), *guildID, event.User().ID)
+	stoppedRecording, err := sessions.Stop(context.Background(), *guildID, event.User().ID)
 	if err != nil {
 		logError(logger, "stopping recording",
 			"err", err,
@@ -139,33 +139,30 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.C
 		})
 		return
 	}
-	session.DisplayNames = SnapshotDisplayNames(client.Caches, *guildID, session.Files)
-	if renamedFiles, err := recording.RenameFiles(session.Files, session.DisplayNames); err != nil {
+	stoppedRecording.DisplayNames = SnapshotDisplayNames(client.Caches, *guildID, stoppedRecording.Files)
+	if renamedFiles, err := recording.RenameFiles(stoppedRecording.Files, stoppedRecording.DisplayNames); err != nil {
 		logError(logger, "renaming recording files",
 			"err", err,
 			slog.String("guild_id", guildID.String()),
-			slog.String("directory", session.Directory),
+			slog.String("directory", stoppedRecording.Directory),
 		)
 	} else {
-		session.Files = renamedFiles
+		stoppedRecording.Files = renamedFiles
 	}
 
 	if logger != nil {
 		logger.Info("recording stopped",
 			slog.String("guild_id", guildID.String()),
 			slog.String("user_id", event.User().ID.String()),
-			slog.String("directory", session.Directory),
+			slog.String("directory", stoppedRecording.Directory),
 		)
 	}
 	message := "Recording stopped and I left the voice channel."
-	if job, started := sessions.StartTranscription(session); started {
-		uploadCompletedTranscript(
-			job.Completion,
-			*guildID,
-			session.TranscriptChannelID,
-			NewTranscriptUploader(client.Rest),
-			logger,
-		)
+	var transcriptionJob session.TranscriptionJob
+	transcriptionStarted := false
+	if job, started := sessions.StartTranscription(stoppedRecording); started {
+		transcriptionJob = job
+		transcriptionStarted = true
 		message += " Local transcription has started."
 	} else {
 		message += " Local transcription is not configured."
@@ -173,6 +170,16 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.C
 	_ = event.CreateMessage(discord.MessageCreate{
 		Content: message,
 	})
+	if transcriptionStarted {
+		deliverTranscript(
+			transcriptionJob,
+			*guildID,
+			stoppedRecording.TranscriptChannelID,
+			NewTranscriptStatus(client.Rest),
+			NewTranscriptUploader(client.Rest),
+			logger,
+		)
+	}
 }
 
 func logError(logger *slog.Logger, message string, args ...any) {

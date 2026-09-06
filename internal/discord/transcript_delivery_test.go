@@ -65,12 +65,156 @@ func TestUploadCompletedTranscriptLogsDeliveryFailure(t *testing.T) {
 	}
 }
 
+func TestDeliverTranscriptUpdatesStatusThenAttachesTranscript(t *testing.T) {
+	progress := make(chan session.TranscriptionProgress, 2)
+	completion := make(chan session.TranscriptionResult, 1)
+	status := newTestTranscriptDeliveryStatus()
+	uploader := &testTranscriptUploader{called: make(chan struct{}, 1)}
+
+	deliverTranscript(session.TranscriptionJob{Progress: progress, Completion: completion}, 1, 2, status, uploader, nil)
+	progress <- session.TranscriptionProgress{Phase: session.TranscriptionPhaseTranscribing, CompletedTurns: 1, TotalTurns: 10, Percent: 10}
+	progress <- session.TranscriptionProgress{Phase: session.TranscriptionPhaseComplete, CompletedTurns: 10, TotalTurns: 10, Percent: 100}
+	close(progress)
+	completion <- session.TranscriptionResult{TranscriptPath: "recordings/session/transcript.txt", LineCount: 12}
+	close(completion)
+
+	events := status.waitForEvents(t, 3)
+	if got, want := events[0], (testTranscriptDeliveryEvent{kind: "update", update: TranscriptStatusUpdate{Phase: "transcribing", CompletedTurns: 1, TotalTurns: 10, Percent: 10}}); got != want {
+		t.Fatalf("first event = %#v, want %#v", got, want)
+	}
+	if got, want := events[1], (testTranscriptDeliveryEvent{kind: "update", update: TranscriptStatusUpdate{Phase: "complete", CompletedTurns: 10, TotalTurns: 10, Percent: 100}}); got != want {
+		t.Fatalf("second event = %#v, want %#v", got, want)
+	}
+	if got, want := events[2], (testTranscriptDeliveryEvent{kind: "complete", path: "recordings/session/transcript.txt", lineCount: 12}); got != want {
+		t.Fatalf("final event = %#v, want %#v", got, want)
+	}
+	select {
+	case <-uploader.called:
+		t.Fatal("fallback uploader was called despite a status message")
+	default:
+	}
+}
+
+func TestDeliverTranscriptReportsTranscriptionFailureInStatus(t *testing.T) {
+	progress := make(chan session.TranscriptionProgress, 1)
+	completion := make(chan session.TranscriptionResult, 1)
+	status := newTestTranscriptDeliveryStatus()
+	logs := newTestLogCapture()
+
+	deliverTranscript(session.TranscriptionJob{Progress: progress, Completion: completion}, 1, 2, status, &testTranscriptUploader{called: make(chan struct{}, 1)}, slog.New(logs))
+	progress <- session.TranscriptionProgress{Phase: session.TranscriptionPhaseFailed}
+	close(progress)
+	completion <- session.TranscriptionResult{Err: errors.New("Whisper failed")}
+	close(completion)
+
+	events := status.waitForEvents(t, 1)
+	if got, want := events[0], (testTranscriptDeliveryEvent{kind: "update", update: TranscriptStatusUpdate{Phase: "failed"}}); got != want {
+		t.Fatalf("failure event = %#v, want %#v", got, want)
+	}
+	record := logs.next(t)
+	if record.Message != "local transcription failed" || record.Level != slog.LevelError {
+		t.Fatalf("log record = %s %q", record.Level, record.Message)
+	}
+}
+
+func TestDeliverTranscriptReportsAttachmentFailureInStatus(t *testing.T) {
+	progress := make(chan session.TranscriptionProgress, 1)
+	completion := make(chan session.TranscriptionResult, 1)
+	status := newTestTranscriptDeliveryStatus()
+	status.completeErr = errors.New("missing Attach Files permission")
+	logs := newTestLogCapture()
+
+	deliverTranscript(session.TranscriptionJob{Progress: progress, Completion: completion}, 1, 2, status, &testTranscriptUploader{called: make(chan struct{}, 1)}, slog.New(logs))
+	progress <- session.TranscriptionProgress{Phase: session.TranscriptionPhaseComplete, Percent: 100}
+	close(progress)
+	completion <- session.TranscriptionResult{TranscriptPath: "recordings/session/transcript.txt"}
+	close(completion)
+
+	events := status.waitForEvents(t, 3)
+	if got, want := events[2], (testTranscriptDeliveryEvent{kind: "update", update: TranscriptStatusUpdate{Phase: "delivery_failed", Percent: 100}}); got != want {
+		t.Fatalf("delivery failure event = %#v, want %#v", got, want)
+	}
+	record := logs.next(t)
+	if record.Message != "uploading transcript to Discord" || record.Level != slog.LevelError {
+		t.Fatalf("log record = %s %q", record.Level, record.Message)
+	}
+}
+
+func TestDeliverTranscriptFallsBackWhenStatusCreationFails(t *testing.T) {
+	progress := make(chan session.TranscriptionProgress)
+	completion := make(chan session.TranscriptionResult, 1)
+	status := newTestTranscriptDeliveryStatus()
+	status.createErr = errors.New("missing Send Messages permission")
+	uploader := &testTranscriptUploader{called: make(chan struct{}, 1)}
+
+	deliverTranscript(session.TranscriptionJob{Progress: progress, Completion: completion}, 1, 2, status, uploader, nil)
+	completion <- session.TranscriptionResult{TranscriptPath: "recordings/session/transcript.txt", LineCount: 12}
+	close(completion)
+
+	select {
+	case <-uploader.called:
+	case <-time.After(time.Second):
+		t.Fatal("fallback uploader was not called")
+	}
+	if uploader.channelID != 2 || uploader.path != "recordings/session/transcript.txt" || uploader.lineCount != 12 {
+		t.Fatalf("fallback upload = channel %v, path %q, lines %d", uploader.channelID, uploader.path, uploader.lineCount)
+	}
+}
+
 type testTranscriptUploader struct {
 	channelID snowflake.ID
 	path      string
 	lineCount int
 	err       error
 	called    chan struct{}
+}
+
+type testTranscriptDeliveryEvent struct {
+	kind      string
+	update    TranscriptStatusUpdate
+	path      string
+	lineCount int
+}
+
+type testTranscriptDeliveryStatus struct {
+	createErr   error
+	completeErr error
+	events      chan testTranscriptDeliveryEvent
+}
+
+func newTestTranscriptDeliveryStatus() *testTranscriptDeliveryStatus {
+	return &testTranscriptDeliveryStatus{events: make(chan testTranscriptDeliveryEvent, 8)}
+}
+
+func (s *testTranscriptDeliveryStatus) Create(_ snowflake.ID, _ TranscriptStatusUpdate) (snowflake.ID, error) {
+	if s.createErr != nil {
+		return 0, s.createErr
+	}
+	return 99, nil
+}
+
+func (s *testTranscriptDeliveryStatus) Update(_ snowflake.ID, _ snowflake.ID, update TranscriptStatusUpdate) error {
+	s.events <- testTranscriptDeliveryEvent{kind: "update", update: update}
+	return nil
+}
+
+func (s *testTranscriptDeliveryStatus) Complete(_ snowflake.ID, _ snowflake.ID, path string, lineCount int) error {
+	s.events <- testTranscriptDeliveryEvent{kind: "complete", path: path, lineCount: lineCount}
+	return s.completeErr
+}
+
+func (s *testTranscriptDeliveryStatus) waitForEvents(t *testing.T, count int) []testTranscriptDeliveryEvent {
+	t.Helper()
+	events := make([]testTranscriptDeliveryEvent, 0, count)
+	for range count {
+		select {
+		case event := <-s.events:
+			events = append(events, event)
+		case <-time.After(time.Second):
+			t.Fatalf("received %d delivery events, want %d", len(events), count)
+		}
+	}
+	return events
 }
 
 func (u *testTranscriptUploader) Upload(channelID snowflake.ID, path string, lineCount int) error {
