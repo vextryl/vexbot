@@ -158,11 +158,22 @@ func formatTranscriptStatusPhase(update TranscriptStatusUpdate) string {
 }
 
 func formatProgressBar(percent int, failed bool) string {
+	cells := make([]string, transcriptProgressBarWidth)
 	if failed {
-		return "[" + strings.Repeat("🟥", transcriptProgressBarWidth) + "]"
+		for index := range cells {
+			cells[index] = "🟥"
+		}
+		return "[" + strings.Join(cells, " ") + "]"
 	}
 	filled := normalizeProgressPercent(percent) / transcriptProgressBarWidth
-	return "[" + strings.Repeat("🟩", filled) + strings.Repeat("⬜", transcriptProgressBarWidth-filled) + "]"
+	for index := range cells {
+		if index < filled {
+			cells[index] = "🟩"
+			continue
+		}
+		cells[index] = "⬜"
+	}
+	return "[" + strings.Join(cells, " ") + "]"
 }
 
 func normalizeProgressPercent(percent int) int {
