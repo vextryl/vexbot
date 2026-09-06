@@ -24,6 +24,7 @@ type startupConfig struct {
 	guildID        string
 	botUserID      snowflake.ID
 	retentionCount int
+	uploadLimit    int64
 	transcriber    whisper.Transcriber
 }
 
@@ -64,6 +65,13 @@ func validateStartupConfig(getenv func(string) string, dependencies configDepend
 		validationErrors = append(validationErrors, err)
 	} else {
 		config.retentionCount = retentionCount
+	}
+
+	uploadLimit, err := discordbot.TranscriptUploadLimit(getenv(discordbot.TranscriptUploadLimitEnv))
+	if err != nil {
+		validationErrors = append(validationErrors, err)
+	} else {
+		config.uploadLimit = uploadLimit
 	}
 
 	whisperConfig, transcriptionEnabled, err := whisper.ValidateConfig(

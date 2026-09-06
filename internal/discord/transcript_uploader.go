@@ -13,7 +13,9 @@ const transcriptAttachmentName = "transcript.txt"
 
 // TranscriptUploader sends completed local transcripts to Discord channels.
 type TranscriptUploader struct {
-	sender transcriptMessageSender
+	sender      transcriptMessageSender
+	uploadLimit int64
+	stat        transcriptFileStat
 }
 
 type transcriptMessageSender interface {
@@ -30,14 +32,19 @@ func (s channelMessageSender) CreateTranscriptMessage(channelID snowflake.ID, me
 }
 
 // NewTranscriptUploader creates an uploader backed by Disgo's channel REST API.
-func NewTranscriptUploader(channels rest.Channels) *TranscriptUploader {
+func NewTranscriptUploader(channels rest.Channels, uploadLimit int64) *TranscriptUploader {
 	return &TranscriptUploader{
-		sender: channelMessageSender{channels: channels},
+		sender:      channelMessageSender{channels: channels},
+		uploadLimit: uploadLimit,
+		stat:        os.Stat,
 	}
 }
 
 // Upload attaches the local transcript file to a normal Discord channel message.
 func (u *TranscriptUploader) Upload(channelID, recipientID snowflake.ID, transcriptPath string, lineCount int) error {
+	if err := inspectTranscriptAttachment(transcriptPath, u.uploadLimit, u.stat); err != nil {
+		return err
+	}
 	transcript, err := os.Open(transcriptPath)
 	if err != nil {
 		return fmt.Errorf("open transcript file: %w", err)

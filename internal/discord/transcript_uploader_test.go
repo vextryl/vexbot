@@ -19,7 +19,7 @@ func TestTranscriptUploaderUploadsTranscriptAttachment(t *testing.T) {
 	}
 
 	sender := &testTranscriptMessageSender{}
-	uploader := &TranscriptUploader{sender: sender}
+	uploader := &TranscriptUploader{sender: sender, uploadLimit: 1024}
 	if err := uploader.Upload(42, 99, path, 3); err != nil {
 		t.Fatalf("Upload() error = %v", err)
 	}
@@ -42,6 +42,57 @@ func TestTranscriptUploaderUploadsTranscriptAttachment(t *testing.T) {
 	}
 	if string(sender.contents) != "[00:00] Alex: Hello.\n" {
 		t.Fatalf("attachment contents = %q", sender.contents)
+	}
+}
+
+func TestTranscriptUploaderAllowsTranscriptAtConfiguredLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), transcriptAttachmentName)
+	contents := []byte("1234")
+	if err := os.WriteFile(path, contents, 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	sender := &testTranscriptMessageSender{}
+	err := (&TranscriptUploader{sender: sender, uploadLimit: int64(len(contents))}).Upload(42, 99, path, 1)
+	if err != nil {
+		t.Fatalf("Upload() error = %v", err)
+	}
+	if !sender.called {
+		t.Fatal("sender was not called for an exactly-at-limit transcript")
+	}
+}
+
+func TestTranscriptUploaderRejectsOversizedTranscriptWithoutSending(t *testing.T) {
+	path := filepath.Join(t.TempDir(), transcriptAttachmentName)
+	if err := os.WriteFile(path, []byte("12345"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	sender := &testTranscriptMessageSender{}
+	err := (&TranscriptUploader{sender: sender, uploadLimit: 4}).Upload(42, 99, path, 1)
+	tooLarge, ok := isTranscriptTooLarge(err)
+	if !ok || tooLarge.SizeBytes != 5 || tooLarge.LimitBytes != 4 {
+		t.Fatalf("Upload() error = %v, want a 5-byte/4-byte limit error", err)
+	}
+	if sender.called {
+		t.Fatal("sender was called for an oversized transcript")
+	}
+}
+
+func TestTranscriptUploaderReportsFileStatFailure(t *testing.T) {
+	want := errors.New("disk unavailable")
+	sender := &testTranscriptMessageSender{}
+	err := (&TranscriptUploader{
+		sender: sender,
+		stat: func(string) (os.FileInfo, error) {
+			return nil, want
+		},
+	}).Upload(42, 99, "recordings/session/transcript.txt", 1)
+	if !errors.Is(err, want) {
+		t.Fatalf("Upload() error = %v, want wrapped %v", err, want)
+	}
+	if sender.called {
+		t.Fatal("sender was called after a file stat failure")
 	}
 }
 

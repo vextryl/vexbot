@@ -28,6 +28,7 @@ Set these values in `.env`:
 | `DISCORD_TOKEN` | Yes | VexBot's Discord bot token. |
 | `DISCORD_GUILD_ID` | Yes | Guild where VexBot registers its commands. |
 | `RECORDING_RETENTION_COUNT` | No | Completed recording sessions to keep; defaults to `5`. |
+| `DISCORD_TRANSCRIPT_UPLOAD_LIMIT_BYTES` | No | Explicit transcript attachment ceiling in bytes; defaults to 16 MiB. Set it to a limit supported by the bot's Discord server/account. |
 | `WHISPER_CLI_PATH` | For transcription | Path to the local Whisper.cpp CLI executable. |
 | `WHISPER_MODEL_PATH` | For transcription | Path to the local Whisper model file. |
 | `FFMPEG_PATH` | No | Local `ffmpeg` executable; defaults to `ffmpeg`. |
@@ -41,6 +42,13 @@ metadata to a cloud service, external AI service, or any other remote
 transcription provider. The Whisper executable and model both remain local.
 
 Temporary per-turn audio and Whisper output are removed as each turn finishes.
+
+When delivery is enabled, VexBot checks `transcript.txt` against its configured
+attachment ceiling before attempting a Discord upload. The 16 MiB default is a
+conservative VexBot safety limit, not a claim about Discord's current limits;
+set `DISCORD_TRANSCRIPT_UPLOAD_LIMIT_BYTES` explicitly for the server/account
+where the bot runs. Oversized transcripts remain in local recording storage and
+VexBot reports the delivery failure without exposing local paths in Discord.
 
 ## Recording output
 

@@ -101,7 +101,7 @@ func Run() {
 	client.AddEventListeners(
 		&events.ListenerAdapter{
 			OnApplicationCommandInteraction: func(event *events.ApplicationCommandInteractionCreate) {
-				discordbot.HandleApplicationCommandInteraction(runContext, event, client, voiceManager, sessions, config.retentionCount, daveFailures, logger)
+				discordbot.HandleApplicationCommandInteraction(runContext, event, client, voiceManager, sessions, config.retentionCount, config.uploadLimit, daveFailures, logger)
 			},
 			OnGuildVoiceStateUpdate: func(event *events.GuildVoiceStateUpdate) {
 				attributes := []any{

@@ -56,13 +56,12 @@ func deliverTranscript(
 			})
 		}
 		if err := status.Complete(channelID, activeStatus.messageID, recipientID, result.TranscriptPath, result.LineCount); err != nil {
-			logError(logger, "uploading transcript to Discord",
-				"err", err,
-				slog.String("guild_id", guildID.String()),
-				slog.String("channel_id", channelID.String()),
-				slog.String("transcript_path", result.TranscriptPath),
-			)
-			activeStatus.update(TranscriptStatusUpdate{Phase: "delivery_failed", Percent: 100, RecipientID: recipientID})
+			phase := "delivery_failed"
+			if _, tooLarge := isTranscriptTooLarge(err); tooLarge {
+				phase = "attachment_too_large"
+			}
+			logTranscriptDeliveryFailure(logger, err, guildID, channelID, result.TranscriptPath)
+			activeStatus.update(TranscriptStatusUpdate{Phase: phase, Percent: 100, RecipientID: recipientID})
 			return
 		}
 
@@ -129,12 +128,7 @@ func uploadCompletedTranscript(
 		}
 
 		if err := uploader.Upload(channelID, recipientID, result.TranscriptPath, result.LineCount); err != nil {
-			logError(logger, "uploading transcript to Discord",
-				"err", err,
-				slog.String("guild_id", guildID.String()),
-				slog.String("channel_id", channelID.String()),
-				slog.String("transcript_path", result.TranscriptPath),
-			)
+			logTranscriptDeliveryFailure(logger, err, guildID, channelID, result.TranscriptPath)
 			return
 		}
 
@@ -147,4 +141,20 @@ func uploadCompletedTranscript(
 			)
 		}
 	}()
+}
+
+func logTranscriptDeliveryFailure(logger *slog.Logger, err error, guildID, channelID snowflake.ID, transcriptPath string) {
+	attributes := []any{
+		"err", err,
+		slog.String("guild_id", guildID.String()),
+		slog.String("channel_id", channelID.String()),
+		slog.String("transcript_path", transcriptPath),
+	}
+	if tooLarge, ok := isTranscriptTooLarge(err); ok {
+		attributes = append(attributes,
+			slog.Int64("transcript_size_bytes", tooLarge.SizeBytes),
+			slog.Int64("upload_limit_bytes", tooLarge.LimitBytes),
+		)
+	}
+	logError(logger, "uploading transcript to Discord", attributes...)
 }

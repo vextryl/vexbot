@@ -140,6 +140,37 @@ func TestDeliverTranscriptReportsAttachmentFailureInStatus(t *testing.T) {
 	}
 }
 
+func TestDeliverTranscriptReportsOversizedTranscriptInStatus(t *testing.T) {
+	progress := make(chan session.TranscriptionProgress, 1)
+	completion := make(chan session.TranscriptionResult, 1)
+	status := newTestTranscriptDeliveryStatus()
+	status.completeErr = &TranscriptTooLargeError{SizeBytes: 9, LimitBytes: 8}
+	logs := newTestLogCapture()
+
+	deliverTranscript(session.TranscriptionJob{Progress: progress, Completion: completion}, 1, 2, 3, status, &testTranscriptUploader{called: make(chan struct{}, 1)}, slog.New(logs))
+	progress <- session.TranscriptionProgress{Phase: session.TranscriptionPhaseComplete, Percent: 100}
+	close(progress)
+	completion <- session.TranscriptionResult{TranscriptPath: "recordings/session/transcript.txt"}
+	close(completion)
+
+	events := status.waitForEvents(t, 3)
+	if got, want := events[2], (testTranscriptDeliveryEvent{kind: "update", update: TranscriptStatusUpdate{Phase: "attachment_too_large", Percent: 100, RecipientID: 3}}); got != want {
+		t.Fatalf("oversized-transcript event = %#v, want %#v", got, want)
+	}
+	record := logs.next(t)
+	if record.Message != "uploading transcript to Discord" || record.Level != slog.LevelError {
+		t.Fatalf("log record = %s %q", record.Level, record.Message)
+	}
+	attributes := make(map[string]any)
+	record.Attrs(func(attr slog.Attr) bool {
+		attributes[attr.Key] = attr.Value.Any()
+		return true
+	})
+	if attributes["transcript_size_bytes"] != int64(9) || attributes["upload_limit_bytes"] != int64(8) {
+		t.Fatalf("oversize log attributes = %#v", attributes)
+	}
+}
+
 func TestDeliverTranscriptFallsBackWhenStatusCreationFails(t *testing.T) {
 	progress := make(chan session.TranscriptionProgress)
 	completion := make(chan session.TranscriptionResult, 1)

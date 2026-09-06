@@ -23,6 +23,7 @@ func HandleApplicationCommandInteraction(
 	voiceManager voice.Manager,
 	sessions *session.Manager,
 	retentionCount int,
+	uploadLimit int64,
 	failures *dave.DecryptFailureCounter,
 	logger *slog.Logger,
 ) {
@@ -34,7 +35,7 @@ func HandleApplicationCommandInteraction(
 		handleJoin(ctx, event, client, voiceManager, sessions, retentionCount, failures, logger)
 
 	case "stop":
-		handleStop(event, client, sessions, failures, logger)
+		handleStop(event, client, sessions, uploadLimit, failures, logger)
 	}
 }
 
@@ -170,7 +171,7 @@ func handleJoin(
 	}()
 }
 
-func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.Client, sessions *session.Manager, failures *dave.DecryptFailureCounter, logger *slog.Logger) {
+func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.Client, sessions *session.Manager, uploadLimit int64, failures *dave.DecryptFailureCounter, logger *slog.Logger) {
 	guildID := event.GuildID()
 	if guildID == nil {
 		_ = event.CreateMessage(discord.MessageCreate{
@@ -233,8 +234,8 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.C
 			*guildID,
 			stoppedRecording.TranscriptChannelID,
 			event.User().ID,
-			NewTranscriptStatus(client.Rest),
-			NewTranscriptUploader(client.Rest),
+			NewTranscriptStatus(client.Rest, uploadLimit),
+			NewTranscriptUploader(client.Rest, uploadLimit),
 			logger,
 		)
 	}

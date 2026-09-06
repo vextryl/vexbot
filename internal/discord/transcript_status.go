@@ -25,7 +25,9 @@ type TranscriptStatusUpdate struct {
 // TranscriptStatus creates and updates the normal Discord message used to
 // report local transcription progress.
 type TranscriptStatus struct {
-	sender transcriptStatusSender
+	sender      transcriptStatusSender
+	uploadLimit int64
+	stat        transcriptFileStat
 }
 
 type transcriptStatusSender interface {
@@ -52,8 +54,12 @@ func (s channelStatusSender) UpdateTranscriptStatusMessage(channelID, messageID 
 
 // NewTranscriptStatus creates a status-message component backed by Disgo's
 // channel REST API.
-func NewTranscriptStatus(channels rest.Channels) *TranscriptStatus {
-	return &TranscriptStatus{sender: channelStatusSender{channels: channels}}
+func NewTranscriptStatus(channels rest.Channels, uploadLimit int64) *TranscriptStatus {
+	return &TranscriptStatus{
+		sender:      channelStatusSender{channels: channels},
+		uploadLimit: uploadLimit,
+		stat:        os.Stat,
+	}
 }
 
 // Create posts the initial normal Discord status message and returns its ID.
@@ -82,6 +88,9 @@ func (s *TranscriptStatus) Update(channelID, messageID snowflake.ID, update Tran
 // Complete attaches the finished local transcript while marking the status
 // message as complete.
 func (s *TranscriptStatus) Complete(channelID, messageID, recipientID snowflake.ID, transcriptPath string, lineCount int) error {
+	if err := inspectTranscriptAttachment(transcriptPath, s.uploadLimit, s.stat); err != nil {
+		return err
+	}
 	transcript, err := os.Open(transcriptPath)
 	if err != nil {
 		return fmt.Errorf("open transcript file: %w", err)
@@ -114,6 +123,9 @@ func FormatTranscriptStatus(update TranscriptStatusUpdate) string {
 	}
 	if update.Phase == "delivery_failed" {
 		return fmt.Sprintf("Discord delivery failed.\n%s ❌\n%s", formatProgressBar(percent, true), terminalTranscriptMessage(update.RecipientID, "the local transcript was kept."))
+	}
+	if update.Phase == "attachment_too_large" {
+		return fmt.Sprintf("Transcript is too large to upload.\n%s ❌\n%s", formatProgressBar(percent, true), terminalTranscriptMessage(update.RecipientID, "the local transcript was kept."))
 	}
 	indicator := "⏳"
 	if update.Phase == "complete" {

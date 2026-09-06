@@ -66,6 +66,23 @@ func TestTranscriptStatusAttachesCompletedTranscript(t *testing.T) {
 	}
 }
 
+func TestTranscriptStatusDoesNotAttachOversizedTranscript(t *testing.T) {
+	path := filepath.Join(t.TempDir(), transcriptAttachmentName)
+	if err := os.WriteFile(path, []byte("12345"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	sender := &testTranscriptStatusSender{}
+	err := (&TranscriptStatus{sender: sender, uploadLimit: 4}).Complete(42, 99, 123, path, 1)
+	tooLarge, ok := isTranscriptTooLarge(err)
+	if !ok || tooLarge.SizeBytes != 5 || tooLarge.LimitBytes != 4 {
+		t.Fatalf("Complete() error = %v, want a 5-byte/4-byte limit error", err)
+	}
+	if sender.updateCalls != 0 {
+		t.Fatal("status sender was called for an oversized transcript")
+	}
+}
+
 func TestTranscriptStatusReportsCreateUpdateAndFileFailures(t *testing.T) {
 	createFailure := errors.New("missing Send Messages permission")
 	status := &TranscriptStatus{sender: &testTranscriptStatusSender{createErr: createFailure}}
@@ -99,11 +116,17 @@ func TestFormatTranscriptStatusRendersTerminalFailures(t *testing.T) {
 	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "delivery_failed", Percent: 100}), "Discord delivery failed.\n[🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥] ❌\nthe local transcript was kept."; got != want {
 		t.Fatalf("delivery failure status = %q, want %q", got, want)
 	}
+	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "attachment_too_large", Percent: 100}), "Transcript is too large to upload.\n[🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥] ❌\nthe local transcript was kept."; got != want {
+		t.Fatalf("oversized transcript status = %q, want %q", got, want)
+	}
 }
 
 func TestFormatTranscriptStatusRendersTerminalRecipient(t *testing.T) {
 	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "failed", RecipientID: 123}), "Transcription failed.\n[🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥] ❌\n<@123> — the local recordings were kept."; got != want {
 		t.Fatalf("recipient status = %q, want %q", got, want)
+	}
+	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "attachment_too_large", RecipientID: 123}), "Transcript is too large to upload.\n[🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥] ❌\n<@123> — the local transcript was kept."; got != want {
+		t.Fatalf("oversized recipient status = %q, want %q", got, want)
 	}
 }
 
@@ -123,6 +146,7 @@ type testTranscriptStatusSender struct {
 	updatedMessageID snowflake.ID
 	updated          discord.MessageUpdate
 	updateErr        error
+	updateCalls      int
 	contents         []byte
 }
 
@@ -133,6 +157,7 @@ func (s *testTranscriptStatusSender) CreateTranscriptStatusMessage(channelID sno
 }
 
 func (s *testTranscriptStatusSender) UpdateTranscriptStatusMessage(channelID, messageID snowflake.ID, update discord.MessageUpdate) error {
+	s.updateCalls++
 	s.updatedChannelID = channelID
 	s.updatedMessageID = messageID
 	s.updated = update
