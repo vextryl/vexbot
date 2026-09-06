@@ -12,8 +12,6 @@ import (
 	"github.com/disgoorg/disgo/voice"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/vextryl/vexbot/internal/audio"
-	"github.com/vextryl/vexbot/internal/transcript"
-	"github.com/vextryl/vexbot/internal/turn"
 	"github.com/vextryl/vexbot/internal/wav"
 	"github.com/vextryl/vexbot/internal/whisper"
 )
@@ -127,7 +125,7 @@ func NewManager(transcriber whisper.Transcriber, logger *slog.Logger) *Manager {
 		sessions:    make(map[snowflake.ID]*Session),
 		starting:    make(map[snowflake.ID]struct{}),
 		transcriber: transcriber,
-		transcribe:  turn.Transcribe,
+		transcribe:  newTranscriptionRunner(),
 		logger:      logger,
 	}
 }
@@ -170,23 +168,6 @@ type StoppedRecording struct {
 	DisplayNames        map[string]string
 }
 
-// TranscriptionResult reports the outcome of asynchronous local
-// transcription. TranscriptPath and LineCount are set only on success.
-type TranscriptionResult struct {
-	TranscriptPath string
-	LineCount      int
-	Err            error
-}
-
-type transcriptionRunner func(
-	context.Context,
-	string,
-	[]wav.File,
-	whisper.Transcriber,
-	func(int),
-	func(int, int, turn.Result),
-) ([]turn.Result, error)
-
 func (m *Manager) Stop(ctx context.Context, guildID, userID snowflake.ID) (StoppedRecording, error) {
 	m.mu.Lock()
 	session, ok := m.sessions[guildID]
@@ -213,100 +194,6 @@ func (m *Manager) Stop(ctx context.Context, guildID, userID snowflake.ID) (Stopp
 		Directory:           session.RecorderDirectory(),
 		Files:               session.RecordingFiles(),
 	}, nil
-}
-
-// StartTranscription begins asynchronous local transcription. It returns a
-// channel that receives exactly one completion result, plus false when local
-// transcription is unavailable for the recording.
-func (m *Manager) StartTranscription(session StoppedRecording) (<-chan TranscriptionResult, bool) {
-	if m.transcriber == nil || len(session.Files) == 0 {
-		return nil, false
-	}
-
-	completion := make(chan TranscriptionResult, 1)
-	go func() {
-		defer close(completion)
-		nextProgressPercent := 10
-		results, err := m.transcribe(
-			context.Background(),
-			session.Directory,
-			session.Files,
-			m.transcriber,
-			func(total int) {
-				m.logInfo("starting local transcription",
-					slog.String("guild_id", session.GuildID.String()),
-					slog.String("directory", session.Directory),
-					slog.Int("total_turns", total),
-				)
-			},
-			func(completed, total int, result turn.Result) {
-				if result.Err != nil {
-					m.logError("transcribing turn",
-						"err", result.Err,
-						slog.String("guild_id", session.GuildID.String()),
-						slog.String("user_id", result.Turn.UserID),
-						slog.Int("completed_turns", completed),
-						slog.Int("total_turns", total),
-					)
-				}
-				percent := completed * 100 / total
-				if percent >= nextProgressPercent || completed == total {
-					m.logInfo("local transcription progress",
-						slog.String("guild_id", session.GuildID.String()),
-						slog.Int("percent", percent),
-						slog.Int("completed_turns", completed),
-						slog.Int("total_turns", total),
-					)
-					for nextProgressPercent <= percent {
-						nextProgressPercent += 10
-					}
-				}
-			},
-		)
-		if err != nil {
-			m.logError("preparing local transcription",
-				"err", err,
-				slog.String("guild_id", session.GuildID.String()),
-				slog.String("directory", session.Directory),
-			)
-			completion <- TranscriptionResult{Err: fmt.Errorf("prepare local transcription: %w", err)}
-			return
-		}
-
-		failed := 0
-		for _, result := range results {
-			if result.Err != nil {
-				failed++
-			}
-		}
-		m.logInfo("local transcription finished",
-			slog.String("guild_id", session.GuildID.String()),
-			slog.Int("succeeded_turns", len(results)-failed),
-			slog.Int("failed_turns", failed),
-		)
-
-		transcriptPath, lineCount, err := transcript.Write(session.Directory, session.DisplayNames, results)
-		if err != nil {
-			m.logError("writing combined transcript",
-				"err", err,
-				slog.String("guild_id", session.GuildID.String()),
-				slog.String("directory", session.Directory),
-			)
-			completion <- TranscriptionResult{Err: fmt.Errorf("write combined transcript: %w", err)}
-			return
-		}
-		m.logInfo("combined transcript saved",
-			slog.String("guild_id", session.GuildID.String()),
-			slog.String("path", transcriptPath),
-			slog.Int("line_count", lineCount),
-		)
-		completion <- TranscriptionResult{
-			TranscriptPath: transcriptPath,
-			LineCount:      lineCount,
-		}
-	}()
-
-	return completion, true
 }
 
 func (m *Manager) logInfo(message string, args ...any) {

@@ -158,9 +158,9 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.C
 		)
 	}
 	message := "Recording stopped and I left the voice channel."
-	if completion, started := sessions.StartTranscription(session); started {
+	if job, started := sessions.StartTranscription(session); started {
 		uploadCompletedTranscript(
-			completion,
+			job.Completion,
 			*guildID,
 			session.TranscriptChannelID,
 			NewTranscriptUploader(client.Rest),
