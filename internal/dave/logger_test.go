@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/disgoorg/snowflake/v2"
 )
 
 func TestDAVEDecryptLogHandlerRateLimitsOnlyDAVEFailures(t *testing.T) {
@@ -53,5 +55,30 @@ func TestDAVEDecryptLogHandlerReportsAccumulatedFailures(t *testing.T) {
 	}
 	if count, report := tracker.record(now.Add(daveDecryptLogInterval)); !report || count != 2 {
 		t.Fatalf("third record = (%d, %v), want (2, true)", count, report)
+	}
+}
+
+func TestDAVEDecryptLogHandlerCountsEveryRateLimitedFailure(t *testing.T) {
+	counter := NewDecryptFailureCounter()
+	const guildID = snowflake.ID(42)
+	counter.Reset(guildID)
+	handler := &daveDecryptLogHandler{
+		next:    slog.NewTextHandler(&bytes.Buffer{}, nil),
+		tracker: &daveDecryptLogTracker{},
+		onFailure: func() {
+			counter.Record(guildID)
+		},
+	}
+
+	for range 3 {
+		record := slog.NewRecord(time.Now(), slog.LevelError, "error while reading packet", 0)
+		record.AddAttrs(slog.Any("err", errors.New("failed to DAVE decrypt packet: failed to decrypt frame")))
+		if err := handler.Handle(context.Background(), record); err != nil {
+			t.Fatalf("Handle() error = %v", err)
+		}
+	}
+
+	if got := counter.Take(guildID); got != 3 {
+		t.Fatalf("counted failures = %d, want 3", got)
 	}
 }

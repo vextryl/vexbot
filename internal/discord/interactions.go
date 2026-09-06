@@ -8,6 +8,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/voice"
+	"github.com/vextryl/vexbot/internal/dave"
 	"github.com/vextryl/vexbot/internal/recording"
 	"github.com/vextryl/vexbot/internal/session"
 	"github.com/vextryl/vexbot/internal/speaker"
@@ -22,6 +23,7 @@ func HandleApplicationCommandInteraction(
 	voiceManager voice.Manager,
 	sessions *session.Manager,
 	retentionCount int,
+	failures *dave.DecryptFailureCounter,
 	logger *slog.Logger,
 ) {
 	switch event.SlashCommandInteractionData().CommandName() {
@@ -29,10 +31,10 @@ func HandleApplicationCommandInteraction(
 		handlePing(event, logger)
 
 	case "join":
-		handleJoin(ctx, event, client, voiceManager, sessions, retentionCount, logger)
+		handleJoin(ctx, event, client, voiceManager, sessions, retentionCount, failures, logger)
 
 	case "stop":
-		handleStop(event, client, sessions, logger)
+		handleStop(event, client, sessions, failures, logger)
 	}
 }
 
@@ -52,6 +54,7 @@ func handleJoin(
 	voiceManager voice.Manager,
 	sessions *session.Manager,
 	retentionCount int,
+	failures *dave.DecryptFailureCounter,
 	logger *slog.Logger,
 ) {
 	guildID := event.GuildID()
@@ -123,6 +126,7 @@ func handleJoin(
 			user.ID,
 			voiceChannelID,
 			event.Channel().ID(),
+			failures,
 			logger,
 		)
 		if err != nil {
@@ -166,7 +170,7 @@ func handleJoin(
 	}()
 }
 
-func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.Client, sessions *session.Manager, logger *slog.Logger) {
+func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.Client, sessions *session.Manager, failures *dave.DecryptFailureCounter, logger *slog.Logger) {
 	guildID := event.GuildID()
 	if guildID == nil {
 		_ = event.CreateMessage(discord.MessageCreate{
@@ -209,6 +213,7 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.C
 			slog.String("directory", stoppedRecording.Directory),
 		)
 	}
+	dave.LogRecordingSummary(logger, failures, *guildID, stoppedRecording.Directory)
 	message := "Recording stopped and I left <#" + stoppedRecording.VoiceChannelID.String() + ">."
 	var transcriptionJob session.TranscriptionJob
 	transcriptionStarted := false

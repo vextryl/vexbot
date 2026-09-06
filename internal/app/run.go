@@ -16,6 +16,7 @@ import (
 	"github.com/disgoorg/disgo/gateway"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/joho/godotenv"
+	"github.com/vextryl/vexbot/internal/dave"
 	discordbot "github.com/vextryl/vexbot/internal/discord"
 	"github.com/vextryl/vexbot/internal/session"
 )
@@ -45,6 +46,7 @@ func Run() {
 	// A closure lets us resolve that dependency after the client exists.
 	var client *bot.Client
 
+	daveFailures := dave.NewDecryptFailureCounter()
 	voiceManager := discordbot.NewVoiceManager(
 		func(
 			ctx context.Context,
@@ -63,6 +65,7 @@ func Run() {
 		},
 		config.botUserID,
 		logger,
+		daveFailures,
 	)
 	sessions := session.NewManager(config.transcriber, logger)
 
@@ -98,7 +101,7 @@ func Run() {
 	client.AddEventListeners(
 		&events.ListenerAdapter{
 			OnApplicationCommandInteraction: func(event *events.ApplicationCommandInteractionCreate) {
-				discordbot.HandleApplicationCommandInteraction(runContext, event, client, voiceManager, sessions, config.retentionCount, logger)
+				discordbot.HandleApplicationCommandInteraction(runContext, event, client, voiceManager, sessions, config.retentionCount, daveFailures, logger)
 			},
 			OnGuildVoiceStateUpdate: func(event *events.GuildVoiceStateUpdate) {
 				attributes := []any{
@@ -139,7 +142,7 @@ func Run() {
 	defer signal.Stop(stop)
 	<-stop
 	logger.Info("received shutdown signal")
-	shutdown(context.Background(), client.Gateway, cancelRun, sessions, logger)
+	shutdown(context.Background(), client.Gateway, cancelRun, sessions, daveFailures, logger)
 }
 
 type commandIntake interface {
@@ -152,7 +155,7 @@ type recordingFinalizer interface {
 
 // shutdown first closes the Discord gateway so no new commands are accepted,
 // then finalizes recordings without initiating local transcription.
-func shutdown(ctx context.Context, intake commandIntake, cancelRun context.CancelFunc, recordings recordingFinalizer, logger *slog.Logger) session.FinalizationResult {
+func shutdown(ctx context.Context, intake commandIntake, cancelRun context.CancelFunc, recordings recordingFinalizer, daveFailures *dave.DecryptFailureCounter, logger *slog.Logger) session.FinalizationResult {
 	if intake != nil {
 		intake.Close(ctx)
 	}
@@ -160,6 +163,9 @@ func shutdown(ctx context.Context, intake commandIntake, cancelRun context.Cance
 		cancelRun()
 	}
 	result := recordings.Finalize(ctx)
+	for _, recording := range result.Recordings {
+		dave.LogRecordingSummary(logger, daveFailures, recording.GuildID, recording.Directory)
+	}
 	if logger != nil {
 		logger.Info("shutdown recording summary",
 			slog.Int("finalized_sessions", result.FinalizedSessions),

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/disgoorg/snowflake/v2"
+	"github.com/vextryl/vexbot/internal/dave"
 	"github.com/vextryl/vexbot/internal/session"
 )
 
@@ -32,7 +34,7 @@ func TestShutdownClosesCommandIntakeBeforeFinalizingRecordings(t *testing.T) {
 	result := shutdown(context.Background(), intake, func() {
 		events = append(events, "cancel")
 		cancelled = true
-	}, recordings, newLogger(&output))
+	}, recordings, dave.NewDecryptFailureCounter(), newLogger(&output))
 
 	if !cancelled || result.FinalizedSessions != 2 {
 		t.Fatalf("shutdown() = %#v, cancelled = %v", result, cancelled)
@@ -52,9 +54,36 @@ func TestShutdownLogsRecordingFinalizationFailure(t *testing.T) {
 	failure := errors.New("timeline write failed")
 	shutdown(context.Background(), &testCommandIntake{}, nil, &testRecordingFinalizer{
 		result: session.FinalizationResult{FailedSessions: 1, Err: failure},
-	}, newLogger(&output))
+	}, dave.NewDecryptFailureCounter(), newLogger(&output))
 
 	for _, value := range []string{"failed_sessions=1", "msg=\"finalizing recordings during shutdown\"", "timeline write failed"} {
+		if !strings.Contains(output.String(), value) {
+			t.Fatalf("shutdown log %q does not contain %q", output.String(), value)
+		}
+	}
+}
+
+func TestShutdownLogsDAVEDecryptSummaryForEachRecording(t *testing.T) {
+	var output bytes.Buffer
+	failures := dave.NewDecryptFailureCounter()
+	firstGuild := snowflake.ID(42)
+	secondGuild := snowflake.ID(43)
+	failures.Reset(firstGuild)
+	failures.Reset(secondGuild)
+	failures.Record(firstGuild)
+	failures.Record(firstGuild)
+
+	shutdown(context.Background(), nil, nil, &testRecordingFinalizer{result: session.FinalizationResult{
+		Recordings: []session.FinalizedRecording{
+			{GuildID: firstGuild, Directory: "recordings/first"},
+			{GuildID: secondGuild, Directory: "recordings/second"},
+		},
+	}}, failures, newLogger(&output))
+
+	for _, value := range []string{
+		"guild_id=42", "directory=recordings/first", "dropped_failure_count=2", "failures_occurred=true",
+		"guild_id=43", "directory=recordings/second", "dropped_failure_count=0", "failures_occurred=false",
+	} {
 		if !strings.Contains(output.String(), value) {
 			t.Fatalf("shutdown log %q does not contain %q", output.String(), value)
 		}

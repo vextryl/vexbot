@@ -261,7 +261,14 @@ func (m *Manager) logError(message string, args ...any) {
 type FinalizationResult struct {
 	FinalizedSessions int
 	FailedSessions    int
+	Recordings        []FinalizedRecording
 	Err               error
+}
+
+// FinalizedRecording identifies one recording handled during shutdown.
+type FinalizedRecording struct {
+	GuildID   snowflake.ID
+	Directory string
 }
 
 // Finalize stops all active recordings without starting transcription. It also
@@ -276,12 +283,18 @@ func (m *Manager) Finalize(ctx context.Context) FinalizationResult {
 
 	result := FinalizationResult{}
 	for guildID, session := range sessions {
+		recording := FinalizedRecording{
+			GuildID:   guildID,
+			Directory: session.RecorderDirectory(),
+		}
 		if err := session.Stop(ctx); err != nil {
 			result.FailedSessions++
 			result.Err = errors.Join(result.Err, fmt.Errorf("stop recording for guild %v: %w", guildID, err))
+			result.Recordings = append(result.Recordings, recording)
 			continue
 		}
 		result.FinalizedSessions++
+		result.Recordings = append(result.Recordings, recording)
 	}
 	return result
 }

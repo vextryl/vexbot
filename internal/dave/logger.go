@@ -8,13 +8,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/disgoorg/snowflake/v2"
 )
 
 const daveDecryptLogInterval = 30 * time.Second
 
 type daveDecryptLogHandler struct {
-	next    slog.Handler
-	tracker *daveDecryptLogTracker
+	next      slog.Handler
+	tracker   *daveDecryptLogTracker
+	onFailure func()
 }
 
 type daveDecryptLogTracker struct {
@@ -24,9 +27,22 @@ type daveDecryptLogTracker struct {
 }
 
 func NewRateLimitedLogger(logger *slog.Logger) *slog.Logger {
+	return newRateLimitedLogger(logger, nil)
+}
+
+// NewRecordingLogger creates a rate-limited logger that also counts DAVE
+// decrypt failures for one guild's active recording.
+func NewRecordingLogger(logger *slog.Logger, failures *DecryptFailureCounter, guildID snowflake.ID) *slog.Logger {
+	return newRateLimitedLogger(logger, func() {
+		failures.Record(guildID)
+	})
+}
+
+func newRateLimitedLogger(logger *slog.Logger, onFailure func()) *slog.Logger {
 	return slog.New(&daveDecryptLogHandler{
-		next:    logger.Handler(),
-		tracker: &daveDecryptLogTracker{},
+		next:      logger.Handler(),
+		tracker:   &daveDecryptLogTracker{},
+		onFailure: onFailure,
 	})
 }
 
@@ -37,6 +53,9 @@ func (h *daveDecryptLogHandler) Enabled(ctx context.Context, level slog.Level) b
 func (h *daveDecryptLogHandler) Handle(ctx context.Context, record slog.Record) error {
 	if !isDAVEDecryptFailure(record) {
 		return h.next.Handle(ctx, record)
+	}
+	if h.onFailure != nil {
+		h.onFailure()
 	}
 
 	if count, report := h.tracker.record(record.Time); report {
@@ -58,15 +77,17 @@ func (h *daveDecryptLogHandler) Handle(ctx context.Context, record slog.Record) 
 
 func (h *daveDecryptLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &daveDecryptLogHandler{
-		next:    h.next.WithAttrs(attrs),
-		tracker: h.tracker,
+		next:      h.next.WithAttrs(attrs),
+		tracker:   h.tracker,
+		onFailure: h.onFailure,
 	}
 }
 
 func (h *daveDecryptLogHandler) WithGroup(name string) slog.Handler {
 	return &daveDecryptLogHandler{
-		next:    h.next.WithGroup(name),
-		tracker: h.tracker,
+		next:      h.next.WithGroup(name),
+		tracker:   h.tracker,
+		onFailure: h.onFailure,
 	}
 }
 

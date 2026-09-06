@@ -39,7 +39,10 @@ func BotUserIDFromToken(token string) (snowflake.ID, error) {
 
 // NewVoiceManager creates the Discord voice manager used by VexBot.
 func NewVoiceManager(
-	updateVoiceState func(context.Context, snowflake.ID, *snowflake.ID, bool, bool) error, userID snowflake.ID, logger *slog.Logger,
+	updateVoiceState func(context.Context, snowflake.ID, *snowflake.ID, bool, bool) error,
+	userID snowflake.ID,
+	logger *slog.Logger,
+	failures *dave.DecryptFailureCounter,
 ) voice.Manager {
 	return voice.NewManager(
 		func(
@@ -58,9 +61,24 @@ func NewVoiceManager(
 			)
 		},
 		userID,
-		voice.WithLogger(dave.NewRateLimitedLogger(logger)),
+		voice.WithLogger(logger),
+		voice.WithConnCreateFunc(recordingConnCreateFunc(logger, failures)),
 		voice.WithDaveSessionCreateFunc(dave.NewSession),
 	)
+}
+
+func recordingConnCreateFunc(logger *slog.Logger, failures *dave.DecryptFailureCounter) voice.ConnCreateFunc {
+	return func(
+		guildID snowflake.ID,
+		userID snowflake.ID,
+		voiceStateUpdateFunc voice.StateUpdateFunc,
+		removeConnFunc func(),
+		opts ...voice.ConnConfigOpt,
+	) voice.Conn {
+		failures.Reset(guildID)
+		opts = append(opts, voice.WithConnLogger(dave.NewRecordingLogger(logger, failures, guildID)))
+		return voice.NewConn(guildID, userID, voiceStateUpdateFunc, removeConnFunc, opts...)
+	}
 }
 
 // UserVoiceChannelID returns the command user's current voice channel.
@@ -80,8 +98,12 @@ func JoinUserVoiceChannel(
 	userID snowflake.ID,
 	voiceChannelID snowflake.ID,
 	transcriptChannelID snowflake.ID,
+	failures *dave.DecryptFailureCounter,
 	logger *slog.Logger,
 ) (*session.Session, snowflake.ID, error) {
+	if failures != nil {
+		failures.Reset(guildID)
+	}
 	conn := manager.CreateConn(guildID)
 	voiceSession, err := session.New(guildID, userID, voiceChannelID, transcriptChannelID, conn, logger)
 	if err != nil {

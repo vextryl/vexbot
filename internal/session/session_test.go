@@ -118,6 +118,9 @@ func TestManagerFinalizeStopsAllSessionsAndRejectsNewOnes(t *testing.T) {
 	if result.FinalizedSessions != 2 || result.FailedSessions != 0 || result.Err != nil {
 		t.Fatalf("Finalize() = %#v, want two successful finalizations", result)
 	}
+	if len(result.Recordings) != 2 {
+		t.Fatalf("Finalize() recordings = %#v, want two recording summaries", result.Recordings)
+	}
 	if !first.closed || !second.closed {
 		t.Fatal("Finalize() did not close every recording sink")
 	}
