@@ -27,6 +27,7 @@ Set these values in `.env`:
 | --- | --- | --- |
 | `DISCORD_TOKEN` | Yes | VexBot's Discord bot token. |
 | `DISCORD_GUILD_ID` | Yes | Guild where VexBot registers its commands. |
+| `RECORDING_RETENTION_COUNT` | No | Completed recording sessions to keep; defaults to `5`. |
 | `WHISPER_CLI_PATH` | For transcription | Path to the local Whisper.cpp CLI executable. |
 | `WHISPER_MODEL_PATH` | For transcription | Path to the local Whisper model file. |
 | `FFMPEG_PATH` | No | Local `ffmpeg` executable; defaults to `ffmpeg`. |
@@ -63,6 +64,10 @@ the timeline to identify speaker turns, transcribe them, and write
 `recordings/` is ignored by Git and is intended to be persistent storage. When
 VexBot is deployed in Docker, it should be mounted as a persistent host volume
 so recordings and transcripts survive container replacement.
+
+Before a new recording starts, VexBot removes the oldest completed session
+directories as needed to retain the configured number of sessions. Active local
+transcription directories are protected from this cleanup.
 
 ## Project layout
 

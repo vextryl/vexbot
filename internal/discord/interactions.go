@@ -10,6 +10,7 @@ import (
 	"github.com/disgoorg/disgo/voice"
 	"github.com/vextryl/vexbot/internal/recording"
 	"github.com/vextryl/vexbot/internal/session"
+	"github.com/vextryl/vexbot/internal/wav"
 )
 
 // HandleApplicationCommandInteraction dispatches VexBot slash commands.
@@ -18,6 +19,7 @@ func HandleApplicationCommandInteraction(
 	client *bot.Client,
 	voiceManager voice.Manager,
 	sessions *session.Manager,
+	retentionCount int,
 	logger *slog.Logger,
 ) {
 	switch event.SlashCommandInteractionData().CommandName() {
@@ -25,7 +27,7 @@ func HandleApplicationCommandInteraction(
 		handlePing(event, logger)
 
 	case "join":
-		handleJoin(event, client, voiceManager, sessions, logger)
+		handleJoin(event, client, voiceManager, sessions, retentionCount, logger)
 
 	case "stop":
 		handleStop(event, client, sessions, logger)
@@ -46,6 +48,7 @@ func handleJoin(
 	client *bot.Client,
 	voiceManager voice.Manager,
 	sessions *session.Manager,
+	retentionCount int,
 	logger *slog.Logger,
 ) {
 	guildID := event.GuildID()
@@ -71,6 +74,29 @@ func handleJoin(
 			Content: "I am already recording or connecting in " + channelMention + ".",
 		})
 		return
+	}
+	retention, err := recording.PruneForNewSession(wav.RecordingsDirectory, retentionCount, sessions.TranscribingDirectories())
+	if err != nil {
+		sessions.CancelReservation(*guildID)
+		logError(logger, "maintaining recording storage",
+			"err", err,
+			slog.String("guild_id", guildID.String()),
+			slog.Int("retention_count", retentionCount),
+		)
+		_ = event.CreateMessage(discord.MessageCreate{Content: "Unable to prepare recording storage. Please check the bot logs."})
+		return
+	}
+	if logger != nil {
+		logger.Info("recording storage checked",
+			slog.String("guild_id", guildID.String()),
+			slog.Int("retention_count", retentionCount),
+			slog.Int("completed_sessions", retention.CompletedSessions),
+			slog.Int("protected_sessions", retention.ProtectedSessions),
+			slog.Int("removed_sessions", len(retention.RemovedDirectories)),
+		)
+		for _, directory := range retention.RemovedDirectories {
+			logger.Info("removed old recording session", slog.String("directory", directory))
+		}
 	}
 
 	err = event.CreateMessage(discord.MessageCreate{

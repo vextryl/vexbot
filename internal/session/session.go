@@ -114,21 +114,23 @@ func (s *Session) Abort() error {
 }
 
 type Manager struct {
-	mu          sync.Mutex
-	sessions    map[snowflake.ID]*Session
-	starting    map[snowflake.ID]snowflake.ID
-	transcriber whisper.Transcriber
-	transcribe  transcriptionRunner
-	logger      *slog.Logger
+	mu           sync.Mutex
+	sessions     map[snowflake.ID]*Session
+	starting     map[snowflake.ID]snowflake.ID
+	transcriber  whisper.Transcriber
+	transcribe   transcriptionRunner
+	logger       *slog.Logger
+	transcribing map[string]struct{}
 }
 
 func NewManager(transcriber whisper.Transcriber, logger *slog.Logger) *Manager {
 	return &Manager{
-		sessions:    make(map[snowflake.ID]*Session),
-		starting:    make(map[snowflake.ID]snowflake.ID),
-		transcriber: transcriber,
-		transcribe:  newTranscriptionRunner(),
-		logger:      logger,
+		sessions:     make(map[snowflake.ID]*Session),
+		starting:     make(map[snowflake.ID]snowflake.ID),
+		transcriber:  transcriber,
+		transcribe:   newTranscriptionRunner(),
+		logger:       logger,
+		transcribing: make(map[string]struct{}),
 	}
 }
 
@@ -173,6 +175,19 @@ func (m *Manager) CancelReservation(guildID snowflake.ID) {
 	defer m.mu.Unlock()
 
 	delete(m.starting, guildID)
+}
+
+// TranscribingDirectories returns the directories currently used by local
+// transcription jobs. Recording maintenance must not remove these paths.
+func (m *Manager) TranscribingDirectories() map[string]struct{} {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	directories := make(map[string]struct{}, len(m.transcribing))
+	for directory := range m.transcribing {
+		directories[directory] = struct{}{}
+	}
+	return directories
 }
 
 type StoppedRecording struct {

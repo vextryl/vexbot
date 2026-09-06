@@ -184,6 +184,42 @@ func TestStartTranscriptionRunsAsynchronously(t *testing.T) {
 	}
 }
 
+func TestStartTranscriptionProtectsDirectoryUntilCompletion(t *testing.T) {
+	directory := t.TempDir()
+	release := make(chan struct{})
+	runnerStarted := make(chan struct{})
+	manager := NewManager(testTranscriber{}, nil)
+	manager.transcribe = func(
+		_ context.Context,
+		_ string,
+		_ []wav.File,
+		_ whisper.Transcriber,
+		_ func(int),
+		_ func(int, int, turn.Result),
+	) ([]turn.Result, error) {
+		close(runnerStarted)
+		<-release
+		return nil, nil
+	}
+
+	job, started := manager.StartTranscription(StoppedRecording{Directory: directory, Files: []wav.File{{}}})
+	if !started {
+		t.Fatal("StartTranscription() started = false, want true")
+	}
+	<-runnerStarted
+	if _, ok := manager.TranscribingDirectories()[directory]; !ok {
+		t.Fatal("TranscribingDirectories() did not include active transcription")
+	}
+
+	close(release)
+	if result := <-job.Completion; result.Err != nil {
+		t.Fatalf("completion error = %v", result.Err)
+	}
+	if _, ok := manager.TranscribingDirectories()[directory]; ok {
+		t.Fatal("TranscribingDirectories() retained completed transcription")
+	}
+}
+
 func drainProgress(progress <-chan TranscriptionProgress) []TranscriptionProgress {
 	var updates []TranscriptionProgress
 	for update := range progress {

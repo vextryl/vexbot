@@ -17,6 +17,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/joho/godotenv"
 	discordbot "github.com/vextryl/vexbot/internal/discord"
+	"github.com/vextryl/vexbot/internal/recording"
 	"github.com/vextryl/vexbot/internal/session"
 	"github.com/vextryl/vexbot/internal/whisper"
 )
@@ -41,6 +42,12 @@ func Run() {
 	guildID := os.Getenv("DISCORD_GUILD_ID")
 	if guildID == "" {
 		logger.Error("Discord guild ID is not configured")
+		return
+	}
+
+	retentionCount, err := recording.RetentionCount(os.Getenv(recording.RetentionCountEnv))
+	if err != nil {
+		logger.Error("configuring recording retention", "err", err)
 		return
 	}
 
@@ -122,7 +129,7 @@ func Run() {
 	client.AddEventListeners(
 		&events.ListenerAdapter{
 			OnApplicationCommandInteraction: func(event *events.ApplicationCommandInteractionCreate) {
-				discordbot.HandleApplicationCommandInteraction(event, client, voiceManager, sessions, logger)
+				discordbot.HandleApplicationCommandInteraction(event, client, voiceManager, sessions, retentionCount, logger)
 			},
 			OnGuildVoiceStateUpdate: func(event *events.GuildVoiceStateUpdate) {
 				attributes := []any{

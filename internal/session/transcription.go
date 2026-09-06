@@ -68,6 +68,9 @@ func (m *Manager) StartTranscription(recording StoppedRecording) (TranscriptionJ
 
 	progress := make(chan TranscriptionProgress, 32)
 	completion := make(chan TranscriptionResult, 1)
+	m.mu.Lock()
+	m.transcribing[recording.Directory] = struct{}{}
+	m.mu.Unlock()
 	publishProgress := func(update TranscriptionProgress) {
 		select {
 		case progress <- update:
@@ -81,6 +84,11 @@ func (m *Manager) StartTranscription(recording StoppedRecording) (TranscriptionJ
 	go func() {
 		defer close(progress)
 		defer close(completion)
+		defer func() {
+			m.mu.Lock()
+			delete(m.transcribing, recording.Directory)
+			m.mu.Unlock()
+		}()
 
 		publishProgress(TranscriptionProgress{Phase: TranscriptionPhasePreparing})
 		results, err := m.transcribeRecording(recording, publishProgress)
