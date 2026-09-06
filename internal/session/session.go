@@ -13,6 +13,7 @@ import (
 	"github.com/disgoorg/disgo/voice"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/vextryl/vexbot/internal/audio"
+	"github.com/vextryl/vexbot/internal/transcript"
 	"github.com/vextryl/vexbot/internal/wav"
 	"github.com/vextryl/vexbot/internal/whisper"
 )
@@ -208,6 +209,7 @@ type StoppedRecording struct {
 	Directory           string
 	Files               []wav.File
 	DisplayNames        map[string]string
+	TranscriptMetadata  transcript.Metadata
 }
 
 func (m *Manager) Stop(ctx context.Context, guildID, userID snowflake.ID) (StoppedRecording, error) {
@@ -236,6 +238,10 @@ func (m *Manager) Stop(ctx context.Context, guildID, userID snowflake.ID) (Stopp
 		TranscriptChannelID: session.transcriptChannelID,
 		Directory:           session.RecorderDirectory(),
 		Files:               session.RecordingFiles(),
+		TranscriptMetadata: transcript.Metadata{
+			StartedAt: session.startedAt,
+			EndedAt:   time.Now(),
+		},
 	}, nil
 }
 

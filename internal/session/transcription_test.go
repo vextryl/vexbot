@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/vextryl/vexbot/internal/turn"
@@ -57,7 +58,9 @@ func TestStartTranscriptionReportsOrderedProgressAndCompletion(t *testing.T) {
 	if result.LineCount != 3 {
 		t.Fatalf("LineCount = %d, want 3", result.LineCount)
 	}
-	if contents, err := os.ReadFile(result.TranscriptPath); err != nil || string(contents) != "[00:00] Alex: Hello.\n[00:00] Alex: Hello.\n[00:00] Alex: Hello.\n" {
+	if contents, err := os.ReadFile(result.TranscriptPath); err != nil ||
+		!strings.HasPrefix(string(contents), "VexBot transcript\n") ||
+		!strings.HasSuffix(string(contents), "[00:00] Alex: Hello.\n[00:00] Alex: Hello.\n[00:00] Alex: Hello.\n") {
 		t.Fatalf("transcript contents = %q, error = %v", contents, err)
 	}
 

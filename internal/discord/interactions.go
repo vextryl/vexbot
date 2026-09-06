@@ -10,6 +10,7 @@ import (
 	"github.com/disgoorg/disgo/voice"
 	"github.com/vextryl/vexbot/internal/recording"
 	"github.com/vextryl/vexbot/internal/session"
+	"github.com/vextryl/vexbot/internal/speaker"
 	"github.com/vextryl/vexbot/internal/wav"
 )
 
@@ -187,6 +188,10 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.C
 		return
 	}
 	stoppedRecording.DisplayNames = SnapshotDisplayNames(client.Caches, *guildID, stoppedRecording.Files)
+	if channel, ok := client.Caches.Channel(stoppedRecording.VoiceChannelID); ok {
+		stoppedRecording.TranscriptMetadata.VoiceChannel = channel.Name()
+	}
+	stoppedRecording.TranscriptMetadata.Participants = transcriptParticipantNames(stoppedRecording.Files, stoppedRecording.DisplayNames)
 	if renamedFiles, err := recording.RenameFiles(stoppedRecording.Files, stoppedRecording.DisplayNames); err != nil {
 		logError(logger, "renaming recording files",
 			"err", err,
@@ -234,4 +239,15 @@ func logError(logger *slog.Logger, message string, args ...any) {
 	if logger != nil {
 		logger.Error(message, args...)
 	}
+}
+
+func transcriptParticipantNames(files []wav.File, displayNames map[string]string) []string {
+	participants := make([]string, 0, len(files))
+	for _, file := range files {
+		userID := file.UserID.String()
+		if displayName := speaker.Normalize(displayNames[userID]); displayName != "" && displayName != userID {
+			participants = append(participants, displayName)
+		}
+	}
+	return participants
 }

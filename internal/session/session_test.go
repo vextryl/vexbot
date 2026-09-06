@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/vextryl/vexbot/internal/audio"
@@ -71,7 +72,9 @@ func TestManagerStopPreservesJoinTranscriptChannel(t *testing.T) {
 	)
 
 	recorder := &testRecordingSink{directory: "recordings/session"}
+	startedAt := time.Date(2026, time.September, 6, 19, 30, 0, 0, time.UTC)
 	active := &Session{
+		startedAt:           startedAt,
 		guildID:             guildID,
 		ownerID:             ownerID,
 		voiceChannelID:      voiceChannelID,
@@ -91,6 +94,12 @@ func TestManagerStopPreservesJoinTranscriptChannel(t *testing.T) {
 	}
 	if got := stopped.VoiceChannelID; got != voiceChannelID {
 		t.Fatalf("VoiceChannelID = %v, want %v", got, voiceChannelID)
+	}
+	if got := stopped.TranscriptMetadata.StartedAt; !got.Equal(startedAt) {
+		t.Fatalf("transcript metadata start = %v, want %v", got, startedAt)
+	}
+	if stopped.TranscriptMetadata.EndedAt.IsZero() {
+		t.Fatal("transcript metadata end time is zero")
 	}
 	if !recorder.closed {
 		t.Fatal("Stop() did not close recording sink")

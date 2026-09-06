@@ -104,7 +104,7 @@ func (m *Manager) StartTranscription(recording StoppedRecording) (TranscriptionJ
 			TotalTurns:     len(results),
 			Percent:        95,
 		})
-		transcriptPath, lineCount, err := transcript.Write(recording.Directory, recording.DisplayNames, results)
+		transcriptPath, lineCount, err := transcript.Write(recording.Directory, recording.TranscriptMetadata, recording.DisplayNames, results)
 		if err != nil {
 			err = fmt.Errorf("write combined transcript: %w", err)
 			m.logError("writing combined transcript",

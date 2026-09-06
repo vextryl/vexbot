@@ -16,6 +16,15 @@ import (
 
 const combinedTranscriptFileName = "transcript.txt"
 
+// Metadata contains the safe, human-readable recording details included at
+// the top of a combined transcript.
+type Metadata struct {
+	StartedAt    time.Time
+	EndedAt      time.Time
+	VoiceChannel string
+	Participants []string
+}
+
 type line struct {
 	UserID       string
 	SessionStart time.Duration
@@ -23,10 +32,12 @@ type line struct {
 	Text         string
 }
 
-func Write(directory string, displayNames map[string]string, results []turn.Result) (string, int, error) {
+func Write(directory string, metadata Metadata, displayNames map[string]string, results []turn.Result) (string, int, error) {
 	lines := buildLines(results)
 
 	var output strings.Builder
+	output.WriteString(formatMetadata(metadata))
+	output.WriteString("\n")
 	for _, line := range lines {
 		fmt.Fprintf(
 			&output,
@@ -43,6 +54,52 @@ func Write(directory string, displayNames map[string]string, results []turn.Resu
 	}
 
 	return path, len(lines), nil
+}
+
+func formatMetadata(metadata Metadata) string {
+	return fmt.Sprintf(
+		"VexBot transcript\nRecording started: %s\nRecording ended: %s\nVoice channel: %s\nParticipants: %s\n",
+		formatMetadataTime(metadata.StartedAt),
+		formatMetadataTime(metadata.EndedAt),
+		formatMetadataValue(metadata.VoiceChannel),
+		strings.Join(normalizeParticipants(metadata.Participants), ", "),
+	)
+}
+
+func formatMetadataTime(timestamp time.Time) string {
+	if timestamp.IsZero() {
+		return "Unknown"
+	}
+	return timestamp.Format("2006-01-02 15:04:05 MST")
+}
+
+func formatMetadataValue(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if value == "" {
+		return "Unknown"
+	}
+	return value
+}
+
+func normalizeParticipants(participants []string) []string {
+	unique := make(map[string]struct{}, len(participants))
+	for _, participant := range participants {
+		if participant = formatMetadataValue(participant); participant != "Unknown" {
+			unique[participant] = struct{}{}
+		}
+	}
+	if len(unique) == 0 {
+		return []string{"Unknown"}
+	}
+
+	values := make([]string, 0, len(unique))
+	for participant := range unique {
+		values = append(values, participant)
+	}
+	sort.Slice(values, func(first, second int) bool {
+		return strings.ToLower(values[first]) < strings.ToLower(values[second])
+	})
+	return values
 }
 
 func buildLines(results []turn.Result) []line {
