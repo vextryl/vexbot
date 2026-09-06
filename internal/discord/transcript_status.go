@@ -85,9 +85,9 @@ func (s *TranscriptStatus) Complete(channelID, messageID snowflake.ID, transcrip
 	defer transcript.Close()
 
 	content := fmt.Sprintf(
-		"Transcription complete — %d line(s).\n%s\nHere is your transcript.",
+		"Transcription complete — %d line(s).\n%s 100%% ✅\nHere is your transcript.",
 		lineCount,
-		formatProgressBar(100),
+		formatProgressBar(100, false),
 	)
 	if err := s.sender.UpdateTranscriptStatusMessage(channelID, messageID, discord.MessageUpdate{
 		Content: &content,
@@ -105,15 +105,20 @@ func (s *TranscriptStatus) Complete(channelID, messageID snowflake.ID, transcrip
 func FormatTranscriptStatus(update TranscriptStatusUpdate) string {
 	percent := normalizeProgressPercent(update.Percent)
 	if update.Phase == "failed" {
-		return fmt.Sprintf("Transcription failed.\n%s\nLocal recordings were kept.", formatProgressBar(percent))
+		return fmt.Sprintf("Transcription failed.\n%s ❌\nLocal recordings were kept.", formatProgressBar(percent, true))
 	}
 	if update.Phase == "delivery_failed" {
-		return fmt.Sprintf("Transcription complete.\n%s\nDiscord delivery failed. The local transcript was kept.", formatProgressBar(percent))
+		return fmt.Sprintf("Transcription complete.\n%s ❌\nDiscord delivery failed. The local transcript was kept.", formatProgressBar(percent, true))
+	}
+	indicator := "⏳"
+	if update.Phase == "complete" {
+		indicator = "⬆️"
 	}
 	return fmt.Sprintf(
-		"Transcription in progress…\n%s %d%%\n%s",
-		formatProgressBar(percent),
+		"Transcription in progress…\n%s %d%% %s\n%s",
+		formatProgressBar(percent, false),
 		percent,
+		indicator,
 		formatTranscriptStatusPhase(update),
 	)
 }
@@ -133,9 +138,12 @@ func formatTranscriptStatusPhase(update TranscriptStatusUpdate) string {
 	}
 }
 
-func formatProgressBar(percent int) string {
+func formatProgressBar(percent int, failed bool) string {
+	if failed {
+		return "[" + strings.Repeat("🟥", transcriptProgressBarWidth) + "]"
+	}
 	filled := normalizeProgressPercent(percent) / transcriptProgressBarWidth
-	return "[" + strings.Repeat("█", filled) + strings.Repeat("░", transcriptProgressBarWidth-filled) + "]"
+	return "[" + strings.Repeat("🟩", filled) + strings.Repeat("⬜", transcriptProgressBarWidth-filled) + "]"
 }
 
 func normalizeProgressPercent(percent int) int {
