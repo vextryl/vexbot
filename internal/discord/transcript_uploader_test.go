@@ -20,15 +20,18 @@ func TestTranscriptUploaderUploadsTranscriptAttachment(t *testing.T) {
 
 	sender := &testTranscriptMessageSender{}
 	uploader := &TranscriptUploader{sender: sender}
-	if err := uploader.Upload(42, path, 3); err != nil {
+	if err := uploader.Upload(42, 99, path, 3); err != nil {
 		t.Fatalf("Upload() error = %v", err)
 	}
 
 	if sender.channelID != 42 {
 		t.Fatalf("channel ID = %v, want 42", sender.channelID)
 	}
-	if sender.message.Content != "Transcript ready. 3 line(s)." {
+	if sender.message.Content != "Transcript ready. 3 line(s).\n<@99> — here is your final transcript." {
 		t.Fatalf("message content = %q", sender.message.Content)
+	}
+	if sender.message.AllowedMentions == nil || len(sender.message.AllowedMentions.Users) != 1 || sender.message.AllowedMentions.Users[0] != 99 {
+		t.Fatalf("allowed mentions = %#v", sender.message.AllowedMentions)
 	}
 	if len(sender.message.Files) != 1 {
 		t.Fatalf("attachment count = %d, want 1", len(sender.message.Files))
@@ -44,7 +47,7 @@ func TestTranscriptUploaderUploadsTranscriptAttachment(t *testing.T) {
 
 func TestTranscriptUploaderRejectsMissingFile(t *testing.T) {
 	sender := &testTranscriptMessageSender{}
-	err := (&TranscriptUploader{sender: sender}).Upload(42, filepath.Join(t.TempDir(), "missing.txt"), 0)
+	err := (&TranscriptUploader{sender: sender}).Upload(42, 99, filepath.Join(t.TempDir(), "missing.txt"), 0)
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Upload() error = %v, want missing-file error", err)
 	}
@@ -61,7 +64,7 @@ func TestTranscriptUploaderReportsDiscordDeliveryFailure(t *testing.T) {
 
 	want := errors.New("missing Attach Files permission")
 	sender := &testTranscriptMessageSender{err: want}
-	err := (&TranscriptUploader{sender: sender}).Upload(42, path, 1)
+	err := (&TranscriptUploader{sender: sender}).Upload(42, 99, path, 1)
 	if !errors.Is(err, want) {
 		t.Fatalf("Upload() error = %v, want wrapped %v", err, want)
 	}

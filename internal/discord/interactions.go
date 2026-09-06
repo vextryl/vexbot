@@ -175,6 +175,7 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.C
 			transcriptionJob,
 			*guildID,
 			stoppedRecording.TranscriptChannelID,
+			event.User().ID,
 			NewTranscriptStatus(client.Rest),
 			NewTranscriptUploader(client.Rest),
 			logger,

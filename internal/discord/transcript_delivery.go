@@ -8,7 +8,7 @@ import (
 )
 
 type transcriptUploader interface {
-	Upload(snowflake.ID, string, int) error
+	Upload(snowflake.ID, snowflake.ID, string, int) error
 }
 
 // deliverTranscript uses a normal status message for transcription progress
@@ -16,16 +16,17 @@ type transcriptUploader interface {
 // back to the standalone transcript upload used before progress reporting.
 func deliverTranscript(
 	job session.TranscriptionJob,
-	guildID, channelID snowflake.ID,
+	guildID, channelID, recipientID snowflake.ID,
 	status transcriptDeliveryStatus,
 	uploader transcriptUploader,
 	logger *slog.Logger,
 ) {
 	activeStatus, created := createTranscriptProgressStatus(guildID, channelID, status, logger)
 	if !created {
-		uploadCompletedTranscript(job.Completion, guildID, channelID, uploader, logger)
+		uploadCompletedTranscript(job.Completion, guildID, channelID, recipientID, uploader, logger)
 		return
 	}
+	activeStatus.recipientID = recipientID
 
 	go func() {
 		result, receivedResult := waitForTranscriptionResult(job, activeStatus)
@@ -38,7 +39,7 @@ func deliverTranscript(
 		}
 		if result.Err != nil {
 			if !activeStatus.terminal {
-				activeStatus.update(TranscriptStatusUpdate{Phase: string(session.TranscriptionPhaseFailed)})
+				activeStatus.update(TranscriptStatusUpdate{Phase: string(session.TranscriptionPhaseFailed), RecipientID: recipientID})
 			}
 			logError(logger, "local transcription failed",
 				"err", result.Err,
@@ -54,14 +55,14 @@ func deliverTranscript(
 				Percent: 100,
 			})
 		}
-		if err := status.Complete(channelID, activeStatus.messageID, result.TranscriptPath, result.LineCount); err != nil {
+		if err := status.Complete(channelID, activeStatus.messageID, recipientID, result.TranscriptPath, result.LineCount); err != nil {
 			logError(logger, "uploading transcript to Discord",
 				"err", err,
 				slog.String("guild_id", guildID.String()),
 				slog.String("channel_id", channelID.String()),
 				slog.String("transcript_path", result.TranscriptPath),
 			)
-			activeStatus.update(TranscriptStatusUpdate{Phase: "delivery_failed", Percent: 100})
+			activeStatus.update(TranscriptStatusUpdate{Phase: "delivery_failed", Percent: 100, RecipientID: recipientID})
 			return
 		}
 
@@ -105,7 +106,7 @@ func waitForTranscriptionResult(job session.TranscriptionJob, status *activeTran
 
 func uploadCompletedTranscript(
 	completion <-chan session.TranscriptionResult,
-	guildID, channelID snowflake.ID,
+	guildID, channelID, recipientID snowflake.ID,
 	uploader transcriptUploader,
 	logger *slog.Logger,
 ) {
@@ -127,7 +128,7 @@ func uploadCompletedTranscript(
 			return
 		}
 
-		if err := uploader.Upload(channelID, result.TranscriptPath, result.LineCount); err != nil {
+		if err := uploader.Upload(channelID, recipientID, result.TranscriptPath, result.LineCount); err != nil {
 			logError(logger, "uploading transcript to Discord",
 				"err", err,
 				slog.String("guild_id", guildID.String()),

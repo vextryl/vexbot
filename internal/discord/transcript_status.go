@@ -19,6 +19,7 @@ type TranscriptStatusUpdate struct {
 	CompletedTurns int
 	TotalTurns     int
 	Percent        int
+	RecipientID    snowflake.ID
 }
 
 // TranscriptStatus creates and updates the normal Discord message used to
@@ -69,7 +70,10 @@ func (s *TranscriptStatus) Create(channelID snowflake.ID, update TranscriptStatu
 // Update edits a previously created normal Discord status message.
 func (s *TranscriptStatus) Update(channelID, messageID snowflake.ID, update TranscriptStatusUpdate) error {
 	content := FormatTranscriptStatus(update)
-	if err := s.sender.UpdateTranscriptStatusMessage(channelID, messageID, discord.MessageUpdate{Content: &content}); err != nil {
+	if err := s.sender.UpdateTranscriptStatusMessage(channelID, messageID, discord.MessageUpdate{
+		Content:         &content,
+		AllowedMentions: allowedTranscriptMention(update.RecipientID),
+	}); err != nil {
 		return fmt.Errorf("update transcription status message: %w", err)
 	}
 	return nil
@@ -77,7 +81,7 @@ func (s *TranscriptStatus) Update(channelID, messageID snowflake.ID, update Tran
 
 // Complete attaches the finished local transcript while marking the status
 // message as complete.
-func (s *TranscriptStatus) Complete(channelID, messageID snowflake.ID, transcriptPath string, lineCount int) error {
+func (s *TranscriptStatus) Complete(channelID, messageID, recipientID snowflake.ID, transcriptPath string, lineCount int) error {
 	transcript, err := os.Open(transcriptPath)
 	if err != nil {
 		return fmt.Errorf("open transcript file: %w", err)
@@ -85,15 +89,16 @@ func (s *TranscriptStatus) Complete(channelID, messageID snowflake.ID, transcrip
 	defer transcript.Close()
 
 	content := fmt.Sprintf(
-		"Transcription complete — %d line(s).\n%s 100%% ✅\nHere is your transcript.",
-		lineCount,
+		"Transcription complete.\n%s 100%% ✅\n%s",
 		formatProgressBar(100, false),
+		terminalTranscriptMessage(recipientID, fmt.Sprintf("here is your final transcript — %d line(s).", lineCount)),
 	)
 	if err := s.sender.UpdateTranscriptStatusMessage(channelID, messageID, discord.MessageUpdate{
 		Content: &content,
 		Files: []*discord.File{
 			discord.NewFile(transcriptAttachmentName, "VexBot transcript", transcript),
 		},
+		AllowedMentions: allowedTranscriptMention(recipientID),
 	}); err != nil {
 		return fmt.Errorf("attach transcript to status message: %w", err)
 	}
@@ -105,10 +110,10 @@ func (s *TranscriptStatus) Complete(channelID, messageID snowflake.ID, transcrip
 func FormatTranscriptStatus(update TranscriptStatusUpdate) string {
 	percent := normalizeProgressPercent(update.Percent)
 	if update.Phase == "failed" {
-		return fmt.Sprintf("Transcription failed.\n%s ❌\nLocal recordings were kept.", formatProgressBar(percent, true))
+		return fmt.Sprintf("Transcription failed.\n%s ❌\n%s", formatProgressBar(percent, true), terminalTranscriptMessage(update.RecipientID, "the local recordings were kept."))
 	}
 	if update.Phase == "delivery_failed" {
-		return fmt.Sprintf("Transcription complete.\n%s ❌\nDiscord delivery failed. The local transcript was kept.", formatProgressBar(percent, true))
+		return fmt.Sprintf("Discord delivery failed.\n%s ❌\n%s", formatProgressBar(percent, true), terminalTranscriptMessage(update.RecipientID, "the local transcript was kept."))
 	}
 	indicator := "⏳"
 	if update.Phase == "complete" {
@@ -121,6 +126,20 @@ func FormatTranscriptStatus(update TranscriptStatusUpdate) string {
 		indicator,
 		formatTranscriptStatusPhase(update),
 	)
+}
+
+func terminalTranscriptMessage(recipientID snowflake.ID, message string) string {
+	if recipientID == 0 {
+		return message
+	}
+	return fmt.Sprintf("<@%s> — %s", recipientID, message)
+}
+
+func allowedTranscriptMention(recipientID snowflake.ID) *discord.AllowedMentions {
+	if recipientID == 0 {
+		return nil
+	}
+	return &discord.AllowedMentions{Users: []snowflake.ID{recipientID}}
 }
 
 func formatTranscriptStatusPhase(update TranscriptStatusUpdate) string {

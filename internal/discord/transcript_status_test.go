@@ -49,11 +49,14 @@ func TestTranscriptStatusAttachesCompletedTranscript(t *testing.T) {
 	}
 
 	sender := &testTranscriptStatusSender{}
-	if err := (&TranscriptStatus{sender: sender}).Complete(42, 99, path, 3); err != nil {
+	if err := (&TranscriptStatus{sender: sender}).Complete(42, 99, 123, path, 3); err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
-	if got, want := *sender.updated.Content, "Transcription complete — 3 line(s).\n[🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩] 100% ✅\nHere is your transcript."; got != want {
+	if got, want := *sender.updated.Content, "Transcription complete.\n[🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩] 100% ✅\n<@123> — here is your final transcript — 3 line(s)."; got != want {
 		t.Fatalf("completion content = %q, want %q", got, want)
+	}
+	if sender.updated.AllowedMentions == nil || len(sender.updated.AllowedMentions.Users) != 1 || sender.updated.AllowedMentions.Users[0] != 123 {
+		t.Fatalf("allowed mentions = %#v", sender.updated.AllowedMentions)
 	}
 	if len(sender.updated.Files) != 1 || sender.updated.Files[0].Name != transcriptAttachmentName {
 		t.Fatalf("completion files = %#v", sender.updated.Files)
@@ -75,7 +78,7 @@ func TestTranscriptStatusReportsCreateUpdateAndFileFailures(t *testing.T) {
 	if err := status.Update(42, 99, TranscriptStatusUpdate{}); !errors.Is(err, updateFailure) {
 		t.Fatalf("Update() error = %v, want wrapped %v", err, updateFailure)
 	}
-	if err := status.Complete(42, 99, filepath.Join(t.TempDir(), "missing.txt"), 0); !errors.Is(err, os.ErrNotExist) {
+	if err := status.Complete(42, 99, 123, filepath.Join(t.TempDir(), "missing.txt"), 0); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Complete() missing-file error = %v, want missing file", err)
 	}
 }
@@ -90,11 +93,17 @@ func TestFormatTranscriptStatusNormalizesProgressBar(t *testing.T) {
 }
 
 func TestFormatTranscriptStatusRendersTerminalFailures(t *testing.T) {
-	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "failed"}), "Transcription failed.\n[🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥] ❌\nLocal recordings were kept."; got != want {
+	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "failed"}), "Transcription failed.\n[🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥] ❌\nthe local recordings were kept."; got != want {
 		t.Fatalf("failed status = %q, want %q", got, want)
 	}
-	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "delivery_failed", Percent: 100}), "Transcription complete.\n[🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥] ❌\nDiscord delivery failed. The local transcript was kept."; got != want {
+	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "delivery_failed", Percent: 100}), "Discord delivery failed.\n[🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥] ❌\nthe local transcript was kept."; got != want {
 		t.Fatalf("delivery failure status = %q, want %q", got, want)
+	}
+}
+
+func TestFormatTranscriptStatusRendersTerminalRecipient(t *testing.T) {
+	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "failed", RecipientID: 123}), "Transcription failed.\n[🟥🟥🟥🟥🟥🟥🟥🟥🟥🟥] ❌\n<@123> — the local recordings were kept."; got != want {
+		t.Fatalf("recipient status = %q, want %q", got, want)
 	}
 }
 

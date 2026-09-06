@@ -37,7 +37,7 @@ func NewTranscriptUploader(channels rest.Channels) *TranscriptUploader {
 }
 
 // Upload attaches the local transcript file to a normal Discord channel message.
-func (u *TranscriptUploader) Upload(channelID snowflake.ID, transcriptPath string, lineCount int) error {
+func (u *TranscriptUploader) Upload(channelID, recipientID snowflake.ID, transcriptPath string, lineCount int) error {
 	transcript, err := os.Open(transcriptPath)
 	if err != nil {
 		return fmt.Errorf("open transcript file: %w", err)
@@ -45,10 +45,11 @@ func (u *TranscriptUploader) Upload(channelID snowflake.ID, transcriptPath strin
 	defer transcript.Close()
 
 	if err := u.sender.CreateTranscriptMessage(channelID, discord.MessageCreate{
-		Content: fmt.Sprintf("Transcript ready. %d line(s).", lineCount),
+		Content: fmt.Sprintf("Transcript ready. %d line(s).\n%s", lineCount, terminalTranscriptMessage(recipientID, "here is your final transcript.")),
 		Files: []*discord.File{
 			discord.NewFile(transcriptAttachmentName, "VexBot transcript", transcript),
 		},
+		AllowedMentions: allowedTranscriptMention(recipientID),
 	}); err != nil {
 		return fmt.Errorf("send transcript to Discord: %w", err)
 	}

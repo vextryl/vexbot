@@ -14,7 +14,7 @@ type transcriptStatusMessage interface {
 
 type transcriptDeliveryStatus interface {
 	transcriptStatusMessage
-	Complete(snowflake.ID, snowflake.ID, string, int) error
+	Complete(snowflake.ID, snowflake.ID, snowflake.ID, string, int) error
 }
 
 type activeTranscriptStatus struct {
@@ -25,6 +25,7 @@ type activeTranscriptStatus struct {
 	logger        *slog.Logger
 	lastThreshold int
 	terminal      bool
+	recipientID   snowflake.ID
 }
 
 // startTranscriptProgressStatus creates a normal status message and updates it
@@ -84,6 +85,7 @@ func (s *activeTranscriptStatus) applyProgress(update session.TranscriptionProgr
 	}
 	statusUpdate := transcriptStatusUpdateFromProgress(update)
 	if update.Phase == session.TranscriptionPhaseFailed {
+		statusUpdate.RecipientID = s.recipientID
 		s.update(statusUpdate)
 		s.terminal = true
 		return true
