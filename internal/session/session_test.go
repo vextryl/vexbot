@@ -12,16 +12,20 @@ import (
 func TestManagerReservePreventsDuplicateReservations(t *testing.T) {
 	manager := NewManager(nil, nil)
 	guildID := snowflake.ID(42)
+	voiceChannelID := snowflake.ID(43)
 
-	if !manager.Reserve(guildID) {
+	if !manager.Reserve(guildID, voiceChannelID) {
 		t.Fatal("first Reserve() = false, want true")
 	}
-	if manager.Reserve(guildID) {
+	if got, ok := manager.VoiceChannelID(guildID); !ok || got != voiceChannelID {
+		t.Fatalf("VoiceChannelID() = %v, %v, want %v, true", got, ok, voiceChannelID)
+	}
+	if manager.Reserve(guildID, voiceChannelID) {
 		t.Fatal("second Reserve() = true, want false")
 	}
 
 	manager.CancelReservation(guildID)
-	if !manager.Reserve(guildID) {
+	if !manager.Reserve(guildID, voiceChannelID) {
 		t.Fatal("Reserve() after CancelReservation() = false, want true")
 	}
 }
@@ -29,11 +33,12 @@ func TestManagerReservePreventsDuplicateReservations(t *testing.T) {
 func TestManagerStartConsumesReservationAndKeepsSessionActive(t *testing.T) {
 	manager := NewManager(nil, nil)
 	guildID := snowflake.ID(42)
+	voiceChannelID := snowflake.ID(43)
 
-	if !manager.Reserve(guildID) {
+	if !manager.Reserve(guildID, voiceChannelID) {
 		t.Fatal("Reserve() = false, want true")
 	}
-	manager.Start(&Session{guildID: guildID})
+	manager.Start(&Session{guildID: guildID, voiceChannelID: voiceChannelID})
 
 	if _, ok := manager.starting[guildID]; ok {
 		t.Fatal("Start() left guild reservation in place")
@@ -41,12 +46,15 @@ func TestManagerStartConsumesReservationAndKeepsSessionActive(t *testing.T) {
 	if _, ok := manager.sessions[guildID]; !ok {
 		t.Fatal("Start() did not register active session")
 	}
-	if manager.Reserve(guildID) {
+	if got, ok := manager.VoiceChannelID(guildID); !ok || got != voiceChannelID {
+		t.Fatalf("VoiceChannelID() = %v, %v, want %v, true", got, ok, voiceChannelID)
+	}
+	if manager.Reserve(guildID, voiceChannelID) {
 		t.Fatal("Reserve() with active session = true, want false")
 	}
 
 	manager.CancelReservation(guildID)
-	if manager.Reserve(guildID) {
+	if manager.Reserve(guildID, voiceChannelID) {
 		t.Fatal("CancelReservation() removed active session")
 	}
 }
@@ -55,6 +63,7 @@ func TestManagerStopPreservesJoinTranscriptChannel(t *testing.T) {
 	const (
 		guildID             = snowflake.ID(42)
 		ownerID             = snowflake.ID(99)
+		voiceChannelID      = snowflake.ID(100)
 		transcriptChannelID = snowflake.ID(123)
 	)
 
@@ -62,6 +71,7 @@ func TestManagerStopPreservesJoinTranscriptChannel(t *testing.T) {
 	active := &Session{
 		guildID:             guildID,
 		ownerID:             ownerID,
+		voiceChannelID:      voiceChannelID,
 		transcriptChannelID: transcriptChannelID,
 		recorder:            recorder,
 		buffer:              audio.NewSegmentBuffer(recorder, nil),
@@ -75,6 +85,9 @@ func TestManagerStopPreservesJoinTranscriptChannel(t *testing.T) {
 	}
 	if got := stopped.TranscriptChannelID; got != transcriptChannelID {
 		t.Fatalf("TranscriptChannelID = %v, want %v", got, transcriptChannelID)
+	}
+	if got := stopped.VoiceChannelID; got != voiceChannelID {
+		t.Fatalf("VoiceChannelID = %v, want %v", got, voiceChannelID)
 	}
 	if !recorder.closed {
 		t.Fatal("Stop() did not close recording sink")

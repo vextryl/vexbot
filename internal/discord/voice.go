@@ -63,51 +63,45 @@ func NewVoiceManager(
 	)
 }
 
-// JoinUserVoiceChannel creates a recording session in the command user's
-// current voice channel and returns that channel's name.
+// UserVoiceChannelID returns the command user's current voice channel.
+func UserVoiceChannelID(caches cache.Caches, guildID, userID snowflake.ID) (snowflake.ID, error) {
+	voiceState, ok := caches.VoiceState(guildID, userID)
+	if !ok || voiceState.ChannelID == nil {
+		return 0, fmt.Errorf("user is not in a voice channel")
+	}
+	return *voiceState.ChannelID, nil
+}
+
+// JoinUserVoiceChannel creates a recording session in a known voice channel.
 func JoinUserVoiceChannel(
 	ctx context.Context,
 	manager voice.Manager,
-	caches cache.Caches,
 	guildID snowflake.ID,
 	userID snowflake.ID,
+	voiceChannelID snowflake.ID,
 	transcriptChannelID snowflake.ID,
 	logger *slog.Logger,
-) (*session.Session, string, error) {
-	voiceState, ok := caches.VoiceState(guildID, userID)
-	if !ok {
-		return nil, "", fmt.Errorf("user is not in a voice channel")
-	}
-
-	if voiceState.ChannelID == nil {
-		return nil, "", fmt.Errorf("user is not in a voice channel")
-	}
-
-	voiceChannel, ok := caches.Channel(*voiceState.ChannelID)
-	if !ok {
-		return nil, "", fmt.Errorf("voice channel %s is not available in the cache", voiceState.ChannelID)
-	}
-
+) (*session.Session, snowflake.ID, error) {
 	conn := manager.CreateConn(guildID)
-	voiceSession, err := session.New(guildID, userID, transcriptChannelID, conn, logger)
+	voiceSession, err := session.New(guildID, userID, voiceChannelID, transcriptChannelID, conn, logger)
 	if err != nil {
-		return nil, "", err
+		return nil, 0, err
 	}
 
 	err = conn.Open(
 		ctx,
-		*voiceState.ChannelID,
+		voiceChannelID,
 		true,  // selfMute
 		false, // selfDeaf
 	)
 	if err != nil {
 		_ = voiceSession.Abort()
 		manager.RemoveConn(guildID)
-		return nil, "", err
+		return nil, 0, err
 	}
 
 	receiver := audio.NewOpusReceiver(voiceSession.AudioBuffer(), voiceSession, logger)
 	conn.SetOpusFrameReceiver(receiver)
 
-	return voiceSession, voiceChannel.Name(), nil
+	return voiceSession, voiceChannelID, nil
 }

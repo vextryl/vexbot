@@ -57,15 +57,24 @@ func handleJoin(
 	}
 
 	user := event.User()
-	if !sessions.Reserve(*guildID) {
+	voiceChannelID, err := UserVoiceChannelID(client.Caches, *guildID, user.ID)
+	if err != nil {
+		_ = event.CreateMessage(discord.MessageCreate{Content: "You must be in a voice channel to use this command."})
+		return
+	}
+	if !sessions.Reserve(*guildID, voiceChannelID) {
+		channelMention := "this server"
+		if activeChannelID, ok := sessions.VoiceChannelID(*guildID); ok {
+			channelMention = "<#" + activeChannelID.String() + ">"
+		}
 		_ = event.CreateMessage(discord.MessageCreate{
-			Content: "I am already recording or connecting in this server.",
+			Content: "I am already recording or connecting in " + channelMention + ".",
 		})
 		return
 	}
 
-	err := event.CreateMessage(discord.MessageCreate{
-		Content: "Attempting to join your voice channel...",
+	err = event.CreateMessage(discord.MessageCreate{
+		Content: "Attempting to join <#" + voiceChannelID.String() + ">...",
 	})
 	if err != nil {
 		sessions.CancelReservation(*guildID)
@@ -78,12 +87,12 @@ func handleJoin(
 	}
 
 	go func() {
-		session, voiceChannelName, err := JoinUserVoiceChannel(
+		session, voiceChannelID, err := JoinUserVoiceChannel(
 			context.Background(),
 			voiceManager,
-			client.Caches,
 			*guildID,
 			user.ID,
+			voiceChannelID,
 			event.Channel().ID(),
 			logger,
 		)
@@ -98,7 +107,7 @@ func handleJoin(
 		}
 
 		sessions.Start(session)
-		message := "Recording started in #" + voiceChannelName + "."
+		message := "Recording started in <#" + voiceChannelID.String() + ">."
 		if _, err := client.Rest.UpdateInteractionResponse(
 			event.ApplicationID(), event.Token(), discord.MessageUpdate{Content: &message},
 		); err != nil {
@@ -157,7 +166,7 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.C
 			slog.String("directory", stoppedRecording.Directory),
 		)
 	}
-	message := "Recording stopped and I left the voice channel."
+	message := "Recording stopped and I left <#" + stoppedRecording.VoiceChannelID.String() + ">."
 	var transcriptionJob session.TranscriptionJob
 	transcriptionStarted := false
 	if job, started := sessions.StartTranscription(stoppedRecording); started {

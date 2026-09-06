@@ -21,6 +21,7 @@ type Session struct {
 	startedAt           time.Time
 	guildID             snowflake.ID
 	ownerID             snowflake.ID
+	voiceChannelID      snowflake.ID
 	transcriptChannelID snowflake.ID
 	conn                voice.Conn
 	buffer              *audio.SegmentBuffer
@@ -35,7 +36,7 @@ type recordingSink interface {
 	Files() []wav.File
 }
 
-func New(guildID, ownerID, transcriptChannelID snowflake.ID, conn voice.Conn, logger *slog.Logger) (*Session, error) {
+func New(guildID, ownerID, voiceChannelID, transcriptChannelID snowflake.ID, conn voice.Conn, logger *slog.Logger) (*Session, error) {
 	startedAt := time.Now()
 	recorder, err := wav.NewRecorder(guildID, startedAt)
 	if err != nil {
@@ -46,6 +47,7 @@ func New(guildID, ownerID, transcriptChannelID snowflake.ID, conn voice.Conn, lo
 		startedAt:           startedAt,
 		guildID:             guildID,
 		ownerID:             ownerID,
+		voiceChannelID:      voiceChannelID,
 		transcriptChannelID: transcriptChannelID,
 		conn:                conn,
 		recorder:            recorder,
@@ -114,7 +116,7 @@ func (s *Session) Abort() error {
 type Manager struct {
 	mu          sync.Mutex
 	sessions    map[snowflake.ID]*Session
-	starting    map[snowflake.ID]struct{}
+	starting    map[snowflake.ID]snowflake.ID
 	transcriber whisper.Transcriber
 	transcribe  transcriptionRunner
 	logger      *slog.Logger
@@ -123,14 +125,14 @@ type Manager struct {
 func NewManager(transcriber whisper.Transcriber, logger *slog.Logger) *Manager {
 	return &Manager{
 		sessions:    make(map[snowflake.ID]*Session),
-		starting:    make(map[snowflake.ID]struct{}),
+		starting:    make(map[snowflake.ID]snowflake.ID),
 		transcriber: transcriber,
 		transcribe:  newTranscriptionRunner(),
 		logger:      logger,
 	}
 }
 
-func (m *Manager) Reserve(guildID snowflake.ID) bool {
+func (m *Manager) Reserve(guildID, voiceChannelID snowflake.ID) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -141,8 +143,21 @@ func (m *Manager) Reserve(guildID snowflake.ID) bool {
 		return false
 	}
 
-	m.starting[guildID] = struct{}{}
+	m.starting[guildID] = voiceChannelID
 	return true
+}
+
+// VoiceChannelID reports the channel VexBot is recording in or connecting to
+// for a guild.
+func (m *Manager) VoiceChannelID(guildID snowflake.ID) (snowflake.ID, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if active, ok := m.sessions[guildID]; ok {
+		return active.voiceChannelID, true
+	}
+	channelID, ok := m.starting[guildID]
+	return channelID, ok
 }
 
 func (m *Manager) Start(session *Session) {
@@ -162,6 +177,7 @@ func (m *Manager) CancelReservation(guildID snowflake.ID) {
 
 type StoppedRecording struct {
 	GuildID             snowflake.ID
+	VoiceChannelID      snowflake.ID
 	TranscriptChannelID snowflake.ID
 	Directory           string
 	Files               []wav.File
@@ -190,6 +206,7 @@ func (m *Manager) Stop(ctx context.Context, guildID, userID snowflake.ID) (Stopp
 
 	return StoppedRecording{
 		GuildID:             guildID,
+		VoiceChannelID:      session.voiceChannelID,
 		TranscriptChannelID: session.transcriptChannelID,
 		Directory:           session.RecorderDirectory(),
 		Files:               session.RecordingFiles(),
@@ -212,7 +229,7 @@ func (m *Manager) Close(ctx context.Context) error {
 	m.mu.Lock()
 	sessions := m.sessions
 	m.sessions = make(map[snowflake.ID]*Session)
-	m.starting = make(map[snowflake.ID]struct{})
+	m.starting = make(map[snowflake.ID]snowflake.ID)
 	m.mu.Unlock()
 
 	var closeErr error
