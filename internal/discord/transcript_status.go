@@ -122,6 +122,8 @@ func formatTranscriptStatusPhase(update TranscriptStatusUpdate) string {
 		return "Combining the final transcript."
 	case "complete":
 		return "Transcript complete. Uploading…"
+	case "failed":
+		return "Transcription failed. Local recordings were kept."
 	default:
 		return "Processing local transcription."
 	}
