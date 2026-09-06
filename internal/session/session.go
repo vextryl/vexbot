@@ -4,6 +4,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -121,6 +122,7 @@ type Manager struct {
 	transcribe   transcriptionRunner
 	logger       *slog.Logger
 	transcribing map[string]struct{}
+	closing      bool
 }
 
 func NewManager(transcriber whisper.Transcriber, logger *slog.Logger) *Manager {
@@ -138,6 +140,9 @@ func (m *Manager) Reserve(guildID, voiceChannelID snowflake.ID) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if m.closing {
+		return false
+	}
 	if _, ok := m.sessions[guildID]; ok {
 		return false
 	}
@@ -162,12 +167,18 @@ func (m *Manager) VoiceChannelID(guildID snowflake.ID) (snowflake.ID, bool) {
 	return channelID, ok
 }
 
-func (m *Manager) Start(session *Session) {
+// Start registers a connected recording session. It returns false when the
+// manager is shutting down, in which case the caller must abort the session.
+func (m *Manager) Start(session *Session) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	delete(m.starting, session.guildID)
+	if m.closing {
+		return false
+	}
 	m.sessions[session.guildID] = session
+	return true
 }
 
 func (m *Manager) CancelReservation(guildID snowflake.ID) {
@@ -240,19 +251,36 @@ func (m *Manager) logError(message string, args ...any) {
 	}
 }
 
-func (m *Manager) Close(ctx context.Context) error {
+// FinalizationResult summarizes recording cleanup performed during shutdown.
+type FinalizationResult struct {
+	FinalizedSessions int
+	FailedSessions    int
+	Err               error
+}
+
+// Finalize stops all active recordings without starting transcription. It also
+// prevents late voice connections from becoming active recording sessions.
+func (m *Manager) Finalize(ctx context.Context) FinalizationResult {
 	m.mu.Lock()
 	sessions := m.sessions
 	m.sessions = make(map[snowflake.ID]*Session)
 	m.starting = make(map[snowflake.ID]snowflake.ID)
+	m.closing = true
 	m.mu.Unlock()
 
-	var closeErr error
+	result := FinalizationResult{}
 	for guildID, session := range sessions {
 		if err := session.Stop(ctx); err != nil {
-			closeErr = fmt.Errorf("stop recording for guild %v: %w", guildID, err)
+			result.FailedSessions++
+			result.Err = errors.Join(result.Err, fmt.Errorf("stop recording for guild %v: %w", guildID, err))
+			continue
 		}
+		result.FinalizedSessions++
 	}
+	return result
+}
 
-	return closeErr
+// Close finalizes active recordings for callers that need only an error.
+func (m *Manager) Close(ctx context.Context) error {
+	return m.Finalize(ctx).Err
 }

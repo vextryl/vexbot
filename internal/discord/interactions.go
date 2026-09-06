@@ -15,6 +15,7 @@ import (
 
 // HandleApplicationCommandInteraction dispatches VexBot slash commands.
 func HandleApplicationCommandInteraction(
+	ctx context.Context,
 	event *events.ApplicationCommandInteractionCreate,
 	client *bot.Client,
 	voiceManager voice.Manager,
@@ -27,7 +28,7 @@ func HandleApplicationCommandInteraction(
 		handlePing(event, logger)
 
 	case "join":
-		handleJoin(event, client, voiceManager, sessions, retentionCount, logger)
+		handleJoin(ctx, event, client, voiceManager, sessions, retentionCount, logger)
 
 	case "stop":
 		handleStop(event, client, sessions, logger)
@@ -44,6 +45,7 @@ func handlePing(event *events.ApplicationCommandInteractionCreate, logger *slog.
 }
 
 func handleJoin(
+	ctx context.Context,
 	event *events.ApplicationCommandInteractionCreate,
 	client *bot.Client,
 	voiceManager voice.Manager,
@@ -114,7 +116,7 @@ func handleJoin(
 
 	go func() {
 		session, voiceChannelID, err := JoinUserVoiceChannel(
-			context.Background(),
+			ctx,
 			voiceManager,
 			*guildID,
 			user.ID,
@@ -132,7 +134,17 @@ func handleJoin(
 			return
 		}
 
-		sessions.Start(session)
+		if !sessions.Start(session) {
+			_ = session.Abort()
+			voiceManager.RemoveConn(*guildID)
+			if logger != nil {
+				logger.Warn("aborted voice connection during shutdown",
+					slog.String("guild_id", guildID.String()),
+					slog.String("user_id", user.ID.String()),
+				)
+			}
+			return
+		}
 		message := "Recording started in <#" + voiceChannelID.String() + ">."
 		if _, err := client.Rest.UpdateInteractionResponse(
 			event.ApplicationID(), event.Token(), discord.MessageUpdate{Content: &message},

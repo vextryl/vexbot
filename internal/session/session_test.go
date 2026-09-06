@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/disgoorg/snowflake/v2"
@@ -38,7 +39,9 @@ func TestManagerStartConsumesReservationAndKeepsSessionActive(t *testing.T) {
 	if !manager.Reserve(guildID, voiceChannelID) {
 		t.Fatal("Reserve() = false, want true")
 	}
-	manager.Start(&Session{guildID: guildID, voiceChannelID: voiceChannelID})
+	if !manager.Start(&Session{guildID: guildID, voiceChannelID: voiceChannelID}) {
+		t.Fatal("Start() = false, want true")
+	}
 
 	if _, ok := manager.starting[guildID]; ok {
 		t.Fatal("Start() left guild reservation in place")
@@ -94,16 +97,61 @@ func TestManagerStopPreservesJoinTranscriptChannel(t *testing.T) {
 	}
 }
 
+func TestManagerFinalizeStopsAllSessionsAndRejectsNewOnes(t *testing.T) {
+	manager := NewManager(nil, nil)
+	first := &testRecordingSink{directory: "recordings/first"}
+	second := &testRecordingSink{directory: "recordings/second"}
+	if !manager.Start(newTestSession(42, first)) || !manager.Start(newTestSession(43, second)) {
+		t.Fatal("Start() = false, want active sessions")
+	}
+
+	result := manager.Finalize(context.Background())
+	if result.FinalizedSessions != 2 || result.FailedSessions != 0 || result.Err != nil {
+		t.Fatalf("Finalize() = %#v, want two successful finalizations", result)
+	}
+	if !first.closed || !second.closed {
+		t.Fatal("Finalize() did not close every recording sink")
+	}
+	if manager.Reserve(44, 45) {
+		t.Fatal("Reserve() succeeded after Finalize()")
+	}
+	if manager.Start(newTestSession(46, &testRecordingSink{})) {
+		t.Fatal("Start() succeeded after Finalize()")
+	}
+}
+
+func TestManagerFinalizeReportsRecordingFailure(t *testing.T) {
+	manager := NewManager(nil, nil)
+	failure := errors.New("write timeline")
+	if !manager.Start(newTestSession(42, &testRecordingSink{closeErr: failure})) {
+		t.Fatal("Start() = false, want true")
+	}
+
+	result := manager.Finalize(context.Background())
+	if result.FinalizedSessions != 0 || result.FailedSessions != 1 || !errors.Is(result.Err, failure) {
+		t.Fatalf("Finalize() = %#v, want one wrapped recording failure", result)
+	}
+}
+
+func newTestSession(guildID snowflake.ID, recorder *testRecordingSink) *Session {
+	return &Session{
+		guildID:  guildID,
+		recorder: recorder,
+		buffer:   audio.NewSegmentBuffer(recorder, nil),
+	}
+}
+
 type testRecordingSink struct {
 	directory string
 	closed    bool
+	closeErr  error
 }
 
 func (s *testRecordingSink) ConsumeChunk(audio.Chunk) {}
 
 func (s *testRecordingSink) Close() error {
 	s.closed = true
-	return nil
+	return s.closeErr
 }
 
 func (s *testRecordingSink) Directory() string { return s.directory }

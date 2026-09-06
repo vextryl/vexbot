@@ -24,6 +24,8 @@ import (
 
 func Run() {
 	logger := newLogger(os.Stdout)
+	runContext, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
 
 	// load discord token from .env file
 	err := godotenv.Load()
@@ -117,19 +119,15 @@ func Run() {
 		return
 	}
 
-	// defer the closing of the Discord session until the program exits
+	// Close REST, voice, and gateway resources after the explicit shutdown
+	// sequence below has finalized any active recording files.
 	defer client.Close(context.Background())
-	defer func() {
-		if err := sessions.Close(context.Background()); err != nil {
-			logger.Error("finalizing recordings", "err", err)
-		}
-	}()
 
 	// add event listeners
 	client.AddEventListeners(
 		&events.ListenerAdapter{
 			OnApplicationCommandInteraction: func(event *events.ApplicationCommandInteractionCreate) {
-				discordbot.HandleApplicationCommandInteraction(event, client, voiceManager, sessions, retentionCount, logger)
+				discordbot.HandleApplicationCommandInteraction(runContext, event, client, voiceManager, sessions, retentionCount, logger)
 			},
 			OnGuildVoiceStateUpdate: func(event *events.GuildVoiceStateUpdate) {
 				attributes := []any{
@@ -167,8 +165,40 @@ func Run() {
 	// otherwise program will exit immediately
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(stop)
 	<-stop
 	logger.Info("received shutdown signal")
+	shutdown(context.Background(), client.Gateway, cancelRun, sessions, logger)
+}
+
+type commandIntake interface {
+	Close(context.Context)
+}
+
+type recordingFinalizer interface {
+	Finalize(context.Context) session.FinalizationResult
+}
+
+// shutdown first closes the Discord gateway so no new commands are accepted,
+// then finalizes recordings without initiating local transcription.
+func shutdown(ctx context.Context, intake commandIntake, cancelRun context.CancelFunc, recordings recordingFinalizer, logger *slog.Logger) session.FinalizationResult {
+	if intake != nil {
+		intake.Close(ctx)
+	}
+	if cancelRun != nil {
+		cancelRun()
+	}
+	result := recordings.Finalize(ctx)
+	if logger != nil {
+		logger.Info("shutdown recording summary",
+			slog.Int("finalized_sessions", result.FinalizedSessions),
+			slog.Int("failed_sessions", result.FailedSessions),
+		)
+		if result.Err != nil {
+			logger.Error("finalizing recordings during shutdown", "err", result.Err)
+		}
+	}
+	return result
 }
 
 func newLogger(output io.Writer) *slog.Logger {
