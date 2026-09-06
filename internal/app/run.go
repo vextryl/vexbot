@@ -17,9 +17,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/joho/godotenv"
 	discordbot "github.com/vextryl/vexbot/internal/discord"
-	"github.com/vextryl/vexbot/internal/recording"
 	"github.com/vextryl/vexbot/internal/session"
-	"github.com/vextryl/vexbot/internal/whisper"
 )
 
 func Run() {
@@ -33,40 +31,13 @@ func Run() {
 		logger.Warn("loading .env file", "err", err)
 	}
 
-	// parse token
-	token := os.Getenv("DISCORD_TOKEN")
-	if token == "" {
-		logger.Error("Discord token is not configured")
-		return
-	}
-
-	// parse guild ID
-	guildID := os.Getenv("DISCORD_GUILD_ID")
-	if guildID == "" {
-		logger.Error("Discord guild ID is not configured")
-		return
-	}
-
-	retentionCount, err := recording.RetentionCount(os.Getenv(recording.RetentionCountEnv))
+	config, err := loadStartupConfig(os.Getenv)
 	if err != nil {
-		logger.Error("configuring recording retention", "err", err)
+		logger.Error("startup configuration is invalid", "err", err)
 		return
 	}
-
-	transcriber, err := whisper.NewWhisperTranscriberFromEnv()
-	if err != nil {
-		logger.Error("configuring local transcription", "err", err)
-		return
-	}
-	if transcriber == nil {
+	if config.transcriber == nil {
 		logger.Info("local transcription is not configured")
-	}
-
-	// disgo requires botUserID for the voice manager
-	botUserID, err := discordbot.BotUserIDFromToken(token)
-	if err != nil {
-		logger.Error("getting bot user ID from token", "err", err)
-		return
 	}
 
 	// The voice manager needs to update the bot's voice state,
@@ -90,13 +61,13 @@ func Run() {
 				selfDeaf,
 			)
 		},
-		botUserID,
+		config.botUserID,
 		logger,
 	)
-	sessions := session.NewManager(transcriber, logger)
+	sessions := session.NewManager(config.transcriber, logger)
 
 	client, err = disgo.New(
-		token,
+		config.token,
 		bot.WithDefaultGateway(),
 		bot.WithVoiceManager(voiceManager),
 		bot.WithGatewayConfigOpts(
@@ -127,7 +98,7 @@ func Run() {
 	client.AddEventListeners(
 		&events.ListenerAdapter{
 			OnApplicationCommandInteraction: func(event *events.ApplicationCommandInteractionCreate) {
-				discordbot.HandleApplicationCommandInteraction(runContext, event, client, voiceManager, sessions, retentionCount, logger)
+				discordbot.HandleApplicationCommandInteraction(runContext, event, client, voiceManager, sessions, config.retentionCount, logger)
 			},
 			OnGuildVoiceStateUpdate: func(event *events.GuildVoiceStateUpdate) {
 				attributes := []any{
@@ -155,7 +126,7 @@ func Run() {
 	// status
 	logger.Info("connected to Discord")
 
-	err = discordbot.RegisterCommands(client, guildID, logger)
+	err = discordbot.RegisterCommands(client, config.guildID, logger)
 	if err != nil {
 		logger.Error("registering commands", "err", err)
 		return

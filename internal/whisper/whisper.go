@@ -5,6 +5,7 @@ package whisper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,13 +17,84 @@ import (
 )
 
 const (
-	whisperCLIPathEnv   = "WHISPER_CLI_PATH"
-	whisperModelPathEnv = "WHISPER_MODEL_PATH"
-	whisperDTWPresetEnv = "WHISPER_DTW_PRESET"
-	ffmpegPathEnv       = "FFMPEG_PATH"
-	whisperLanguageEnv  = "WHISPER_LANGUAGE"
+	WhisperCLIPathEnv   = "WHISPER_CLI_PATH"
+	WhisperModelPathEnv = "WHISPER_MODEL_PATH"
+	WhisperDTWPresetEnv = "WHISPER_DTW_PRESET"
+	FFMPEGPathEnv       = "FFMPEG_PATH"
+	WhisperLanguageEnv  = "WHISPER_LANGUAGE"
 	whisperEndOfTextID  = 50256
 )
+
+// Config contains the local executable and model settings needed to run
+// Whisper transcription.
+type Config struct {
+	CLIPath    string
+	ModelPath  string
+	DTWPreset  string
+	FFmpegPath string
+	Language   string
+}
+
+// ConfigFromEnvironment reads Whisper configuration without validating paths.
+func ConfigFromEnvironment(getenv func(string) string) Config {
+	return Config{
+		CLIPath:    getenv(WhisperCLIPathEnv),
+		ModelPath:  getenv(WhisperModelPathEnv),
+		DTWPreset:  getenv(WhisperDTWPresetEnv),
+		FFmpegPath: getenv(FFMPEGPathEnv),
+		Language:   getenv(WhisperLanguageEnv),
+	}
+}
+
+// ValidateConfig normalizes optional values and validates enabled local
+// transcription dependencies. It reports whether transcription is enabled.
+func ValidateConfig(config Config, lookPath func(string) (string, error), stat func(string) (os.FileInfo, error)) (Config, bool, error) {
+	config.CLIPath = strings.TrimSpace(config.CLIPath)
+	config.ModelPath = strings.TrimSpace(config.ModelPath)
+	config.DTWPreset = strings.TrimSpace(config.DTWPreset)
+	config.FFmpegPath = strings.TrimSpace(config.FFmpegPath)
+	config.Language = strings.TrimSpace(config.Language)
+
+	if config.CLIPath == "" && config.ModelPath == "" {
+		return config, false, nil
+	}
+
+	var validationErrors []error
+	if config.CLIPath == "" || config.ModelPath == "" {
+		validationErrors = append(validationErrors, fmt.Errorf("%s and %s must both be set", WhisperCLIPathEnv, WhisperModelPathEnv))
+	}
+	if config.DTWPreset == "" {
+		config.DTWPreset = inferDTWPreset(config.ModelPath)
+		if config.DTWPreset == "" {
+			validationErrors = append(validationErrors, fmt.Errorf("set %s for Whisper model %q", WhisperDTWPresetEnv, filepath.Base(config.ModelPath)))
+		}
+	}
+	if config.FFmpegPath == "" {
+		config.FFmpegPath = "ffmpeg"
+	}
+	if config.Language == "" {
+		config.Language = "en"
+	}
+
+	if config.CLIPath != "" {
+		if _, err := lookPath(config.CLIPath); err != nil {
+			validationErrors = append(validationErrors, fmt.Errorf("resolve %s: %w", WhisperCLIPathEnv, err))
+		}
+	}
+	if config.ModelPath != "" {
+		info, err := stat(config.ModelPath)
+		if err != nil {
+			validationErrors = append(validationErrors, fmt.Errorf("inspect %s: %w", WhisperModelPathEnv, err))
+		} else if !info.Mode().IsRegular() {
+			validationErrors = append(validationErrors, fmt.Errorf("%s must be a regular file", WhisperModelPathEnv))
+		}
+	}
+	if _, err := lookPath(config.FFmpegPath); err != nil {
+		validationErrors = append(validationErrors, fmt.Errorf("resolve %s: %w", FFMPEGPathEnv, err))
+	}
+
+	return config, true, errors.Join(validationErrors...)
+}
 
 type Transcriber interface {
 	Transcribe(context.Context, wav.File) (Transcription, error)
@@ -77,13 +149,16 @@ type whisperTranscriber struct {
 }
 
 func NewWhisperTranscriberFromEnv() (*whisperTranscriber, error) {
-	return newWhisperTranscriber(
-		os.Getenv(whisperCLIPathEnv),
-		os.Getenv(whisperModelPathEnv),
-		os.Getenv(whisperDTWPresetEnv),
-		os.Getenv(ffmpegPathEnv),
-		os.Getenv(whisperLanguageEnv),
-	)
+	config, enabled, err := ValidateConfig(ConfigFromEnvironment(os.Getenv), exec.LookPath, os.Stat)
+	if err != nil || !enabled {
+		return nil, err
+	}
+	return NewWhisperTranscriber(config)
+}
+
+// NewWhisperTranscriber creates a transcriber from validated configuration.
+func NewWhisperTranscriber(config Config) (*whisperTranscriber, error) {
+	return newWhisperTranscriber(config.CLIPath, config.ModelPath, config.DTWPreset, config.FFmpegPath, config.Language)
 }
 
 func newWhisperTranscriber(
@@ -100,13 +175,13 @@ func newWhisperTranscriber(
 		return nil, nil
 	}
 	if cliPath == "" || modelPath == "" {
-		return nil, fmt.Errorf("%s and %s must both be set", whisperCLIPathEnv, whisperModelPathEnv)
+		return nil, fmt.Errorf("%s and %s must both be set", WhisperCLIPathEnv, WhisperModelPathEnv)
 	}
 	if dtwPreset = strings.TrimSpace(dtwPreset); dtwPreset == "" {
 		dtwPreset = inferDTWPreset(modelPath)
 	}
 	if dtwPreset == "" {
-		return nil, fmt.Errorf("set %s for Whisper model %q", whisperDTWPresetEnv, filepath.Base(modelPath))
+		return nil, fmt.Errorf("set %s for Whisper model %q", WhisperDTWPresetEnv, filepath.Base(modelPath))
 	}
 
 	if ffmpeg = strings.TrimSpace(ffmpeg); ffmpeg == "" {
