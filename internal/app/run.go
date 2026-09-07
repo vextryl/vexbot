@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -27,9 +28,9 @@ func Run() {
 	runContext, cancelRun := context.WithCancel(context.Background())
 	defer cancelRun()
 
-	// load discord token from .env file
+	// A local .env is optional when configuration is supplied by the environment.
 	err := godotenv.Load()
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		logger.Warn("loading .env file", "err", err)
 	}
 
