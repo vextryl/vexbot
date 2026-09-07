@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Keep both stages on Trixie so their native library versions are compatible.
-FROM golang:1.26.6-trixie AS build
+FROM golang:1.27.1-trixie AS build
 
 WORKDIR /src
 

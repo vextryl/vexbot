@@ -1,6 +1,6 @@
 module github.com/vextryl/vexbot
 
-go 1.26.6
+go 1.27.1
 
 require (
 	github.com/disgoorg/disgo v0.19.6

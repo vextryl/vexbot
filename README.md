@@ -7,7 +7,7 @@ sessions locally, and writes a readable chronological conversation log.
 ## Running locally
 
 For a fresh Linux installation, follow the Docker guide below. Running directly
-from source requires Go 1.26.6 or newer, a C/C++ toolchain, `pkg-config`, Opus
+from source requires Go 1.27.1 or newer, a C/C++ toolchain, `pkg-config`, Opus
 and Opusfile development libraries, and native libdave 1.1.0. Follow
 [GoDave's native library setup](https://github.com/disgoorg/godave#libdave-installation)
 and ensure `pkg-config --modversion opus opusfile dave` succeeds. Local
