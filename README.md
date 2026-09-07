@@ -249,6 +249,8 @@ copying them into the image:
 ```sh
 sudo docker run --detach --name vexbot --restart unless-stopped \
   --env-file /srv/vexbot/vexbot.env \
+  --dns 1.1.1.1 \
+  --dns 1.0.0.1 \
   --volume /srv/vexbot/recordings:/app/recordings \
   --volume /srv/vexbot/whisper:/opt/whisper:ro \
   vexbot:local
@@ -272,6 +274,11 @@ attachment appear in the text channel where `/join` was used.
 Press **Ctrl+C** to leave the log viewer; this does not stop the detached bot.
 If the container exits or restarts, inspect its logs for missing configuration
 or dependency errors before testing commands in Discord.
+
+The `--dns` options ensure Docker can resolve Discord voice-media hosts even
+when the host's local resolver does not work from Docker's bridge network. If
+your network requires its own DNS resolver, replace both addresses with
+resolvers that can reach public Discord hostnames.
 
 Useful everyday commands:
 
@@ -309,6 +316,8 @@ sudo docker rm vexbot
 
 sudo docker run --detach --name vexbot --restart unless-stopped \
   --env-file /srv/vexbot/vexbot.env \
+  --dns 1.1.1.1 \
+  --dns 1.0.0.1 \
   --volume /srv/vexbot/recordings:/app/recordings \
   --volume /srv/vexbot/whisper:/opt/whisper:ro \
   vexbot:local

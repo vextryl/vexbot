@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
@@ -60,18 +61,33 @@ func handleJoin(
 	failures *dave.DecryptFailureCounter,
 	logger *slog.Logger,
 ) {
+	// Acknowledge before cache lookups, storage maintenance, or voice setup.
+	ackStarted := time.Now()
+	if err := event.DeferCreateMessage(false); err != nil {
+		logError(logger, "acknowledging join command", "err", err,
+			slog.Duration("ack_duration", time.Since(ackStarted)))
+		return
+	}
+	if logger != nil {
+		logger.Info("join command acknowledged", slog.Duration("ack_duration", time.Since(ackStarted)))
+	}
+	respond := func(message string) {
+		if _, err := client.Rest.UpdateInteractionResponse(
+			event.ApplicationID(), event.Token(), discord.MessageUpdate{Content: &message},
+		); err != nil {
+			logError(logger, "updating join command response", "err", err)
+		}
+	}
 	guildID := event.GuildID()
 	if guildID == nil {
-		_ = event.CreateMessage(discord.MessageCreate{
-			Content: "This command can only be used in a server.",
-		})
+		respond("This command can only be used in a server.")
 		return
 	}
 
 	user := event.User()
 	voiceChannelID, err := discordvoice.UserVoiceChannelID(client.Caches, *guildID, user.ID)
 	if err != nil {
-		_ = event.CreateMessage(discord.MessageCreate{Content: "You must be in a voice channel to use this command."})
+		respond("You must be in a voice channel to use this command.")
 		return
 	}
 	if !sessions.Reserve(*guildID, voiceChannelID) {
@@ -79,11 +95,10 @@ func handleJoin(
 		if activeChannelID, ok := sessions.VoiceChannelID(*guildID); ok {
 			channelMention = "<#" + activeChannelID.String() + ">"
 		}
-		_ = event.CreateMessage(discord.MessageCreate{
-			Content: "I am already recording or connecting in " + channelMention + ".",
-		})
+		respond("I am already recording or connecting in " + channelMention + ".")
 		return
 	}
+	storageStarted := time.Now()
 	retention, err := recording.PruneForNewSession(wav.RecordingsDirectory, retentionCount, sessions.TranscribingDirectories())
 	if err != nil {
 		sessions.CancelReservation(*guildID)
@@ -92,11 +107,12 @@ func handleJoin(
 			slog.String("guild_id", guildID.String()),
 			slog.Int("retention_count", retentionCount),
 		)
-		_ = event.CreateMessage(discord.MessageCreate{Content: "Unable to prepare recording storage. Please check the bot logs."})
+		respond("Unable to prepare recording storage. Please check the bot logs.")
 		return
 	}
 	if logger != nil {
 		logger.Info("recording storage checked",
+			slog.Duration("storage_duration", time.Since(storageStarted)),
 			slog.String("guild_id", guildID.String()),
 			slog.Int("retention_count", retentionCount),
 			slog.Int("completed_sessions", retention.CompletedSessions),
@@ -108,20 +124,10 @@ func handleJoin(
 		}
 	}
 
-	err = event.CreateMessage(discord.MessageCreate{
-		Content: "Attempting to join <#" + voiceChannelID.String() + ">...",
-	})
-	if err != nil {
-		sessions.CancelReservation(*guildID)
-		logError(logger, "responding to join command",
-			"err", err,
-			slog.String("guild_id", guildID.String()),
-			slog.String("user_id", user.ID.String()),
-		)
-		return
-	}
+	respond("Attempting to join <#" + voiceChannelID.String() + ">...")
 
 	go func() {
+		joinStarted := time.Now()
 		session, voiceChannelID, err := discordvoice.JoinUserVoiceChannel(
 			ctx,
 			voiceManager,
@@ -134,7 +140,9 @@ func handleJoin(
 		)
 		if err != nil {
 			sessions.CancelReservation(*guildID)
+			respond("Unable to join the voice channel. Please check the bot logs.")
 			logError(logger, "joining voice channel",
+				slog.Duration("voice_join_duration", time.Since(joinStarted)),
 				"err", err,
 				slog.String("guild_id", guildID.String()),
 				slog.String("user_id", user.ID.String()),
@@ -153,18 +161,10 @@ func handleJoin(
 			}
 			return
 		}
-		message := "Recording started in <#" + voiceChannelID.String() + ">."
-		if _, err := client.Rest.UpdateInteractionResponse(
-			event.ApplicationID(), event.Token(), discord.MessageUpdate{Content: &message},
-		); err != nil {
-			logError(logger, "updating join command response",
-				"err", err,
-				slog.String("guild_id", guildID.String()),
-				slog.String("user_id", user.ID.String()),
-			)
-		}
+		respond("Recording started in <#" + voiceChannelID.String() + ">.")
 		if logger != nil {
 			logger.Info("joined voice channel and started recording",
+				slog.Duration("voice_join_duration", time.Since(joinStarted)),
 				slog.String("guild_id", guildID.String()),
 				slog.String("user_id", user.ID.String()),
 				slog.String("directory", session.RecorderDirectory()),
