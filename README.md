@@ -6,7 +6,15 @@ sessions locally, and writes a readable chronological conversation log.
 
 ## Running locally
 
-Create `.env` from `.env.example`, set the required values, then run:
+For a fresh Linux installation, follow the Docker guide below. Running directly
+from source requires Go 1.26.6 or newer, a C/C++ toolchain, `pkg-config`, Opus
+and Opusfile development libraries, and native libdave 1.1.0. Follow
+[GoDave's native library setup](https://github.com/disgoorg/godave#libdave-installation)
+and ensure `pkg-config --modversion opus opusfile dave` succeeds. Local
+transcription also requires ffmpeg and Whisper.cpp.
+
+With those dependencies installed, create `.env` from `.env.example` in the
+repository root, set the required values, then run:
 
 ```sh
 go run .
@@ -21,15 +29,27 @@ VexBot registers three guild commands:
 
 ## Docker deployment: step-by-step Linux setup
 
-This guide is for a Linux homelab host. It keeps everything local: VexBot,
-Whisper.cpp, its model, recordings, and transcripts stay on the host or inside
-its local Docker container. Discord is only used for the bot connection and
-for the transcript message it posts back to your server.
+This guide targets an Ubuntu 24.04 homelab host using Docker Engine. Audio is
+received from Discord, recorded and transcribed locally, and the completed
+transcript is posted back to Discord. No cloud transcription service is used.
+Setup needs internet access for source, packages, images, and the Whisper model;
+normal operation needs a Discord connection.
+
+Run commands as your normal SSH login user with `sudo` access. If an
+administrator runs a command from a root shell, omit `sudo` and replace
+`$USER` with the intended login user wherever ownership or group membership
+is changed. A host account named `vexbot` is optional; the image creates its
+own independent `vexbot` user.
 
 The production image contains VexBot, `ffmpeg`, and the Linux runtime libraries
 needed by typical CPU-only Whisper.cpp builds. It runs as the non-root `vexbot`
 user (UID/GID `10001`). Discord credentials, Whisper models, recordings, and
 the Whisper executable are never copied into the image.
+
+The image uses Debian Trixie and installs Opus, Opusfile, and the pinned
+libdave 1.1.0 native library required by GoDave. These bot dependencies are
+installed by Docker; you do not need to install them on the host. Linux amd64
+and arm64 builds use checksum-verified upstream libdave binaries.
 
 ### 1. Prepare the host
 
@@ -38,18 +58,36 @@ Whisper.cpp executable. On a Debian or Ubuntu host:
 
 ```sh
 sudo apt-get update
-sudo apt-get install --yes git build-essential cmake
+sudo apt-get install --yes git build-essential cmake curl ca-certificates nano
 ```
 
-Install Docker Engine using Docker's [official Linux installation guide](https://docs.docker.com/engine/install/).
+Install Docker Engine using Docker's [Ubuntu instructions](https://docs.docker.com/engine/install/ubuntu/)
+(or [Debian instructions](https://docs.docker.com/engine/install/debian/) on Debian).
+A VS Code Docker extension alone does not install the Docker daemon.
 After installation, verify that the daemon works:
 
 ```sh
+sudo systemctl enable --now docker
 sudo docker run --rm hello-world
 ```
 
 Using `sudo docker` is completely fine. If you prefer to run Docker without
-`sudo`, follow Docker's [post-install instructions](https://docs.docker.com/engine/install/linux-postinstall/).
+`sudo`, add your login user to the Docker group:
+
+```sh
+sudo groupadd --force docker
+sudo usermod -aG docker "$USER"
+```
+
+Fully log out of SSH and reconnect, then run `id` and `docker version`.
+`id` must include `docker`; `docker version` must show both Client and Server.
+Existing processes keep their old groups. With VS Code Remote SSH, reconnect
+and restart any agent sessions; if needed, run **Remote-SSH: Kill VS Code
+Server on Host...** from the command palette before reconnecting.
+The Docker group grants root-equivalent access; see Docker's
+[post-install instructions](https://docs.docker.com/engine/install/linux-postinstall/).
+The commands below retain `sudo`, including when reading the root-owned
+secret environment file.
 
 Create a permanent home for VexBot. The source checkout, secret configuration,
 Whisper files, and recordings are deliberately separate:
@@ -62,12 +100,13 @@ sudo chown 10001:10001 /srv/vexbot/recordings
 ```
 
 The first ownership command lets your normal Linux user clone and update the
-source checkout in the next step. The second gives only the recordings directory
-to the non-root user inside the container.
+source checkout in step 4. The second gives only the recordings directory
+to the non-root user inside the container. Do not change it back to your SSH
+user's ownership: the container needs numeric UID/GID `10001:10001`.
 
 ### 2. Create and invite the Discord bot
 
-In the Discord Developer Portal, create an application, add a Bot user, and
+In the [Discord Developer Portal](https://discord.com/developers/applications), create an application, add a Bot user, and
 copy its token. Treat the token like a password: do not paste it into chat,
 commit it to Git, or put it in the Docker image.
 
@@ -88,34 +127,50 @@ ID**.
 
 These commands compile Whisper.cpp on the Linux host and download the English
 `base.en` model. Whisper.cpp's own [quick-start guide](https://github.com/ggml-org/whisper.cpp/blob/master/README.md)
-uses the same build and model-download commands.
+describes the build and model-download workflow. The options below prepare a
+CPU-only executable for the mount layout used here.
 
 ```sh
 git clone https://github.com/ggml-org/whisper.cpp.git /tmp/whisper.cpp
 cd /tmp/whisper.cpp
 sh ./models/download-ggml-model.sh base.en
-cmake -B build
-cmake --build build -j --config Release
+cmake -B build -DBUILD_SHARED_LIBS=OFF -DWHISPER_CURL=OFF
+cmake --build build --parallel 2 --config Release --target whisper-cli
 
 sudo install -m 755 ./build/bin/whisper-cli /srv/vexbot/whisper/whisper-cli
 sudo install -m 644 ./models/ggml-base.en.bin /srv/vexbot/whisper/models/ggml-base.en.bin
 ```
 
+If `/tmp/whisper.cpp` already contains your checkout, skip the clone command
+and start with `cd /tmp/whisper.cpp`. Stop if a command fails and resolve its
+error before continuing to the install commands.
+
 The executable is compiled for this Linux machine, then mounted read-only into
-the container. The model stays on the host. To choose another model later,
+the container. `BUILD_SHARED_LIBS=OFF` includes Whisper and GGML in the
+executable so copying just `whisper-cli` works without their separate shared
+libraries. Two build jobs limit memory use; increase this if the host has
+capacity. The model stays on the host. To choose another model later,
 download that model with Whisper.cpp, copy it into `/srv/vexbot/whisper/models/`,
 and update `WHISPER_MODEL_PATH` below.
 
 ### 4. Get VexBot and create its secret configuration file
 
-Clone the VexBot repository somewhere you normally keep application source. If
-the repository is private, use the GitHub authentication method you normally
-use for private repositories.
+Clone the VexBot repository as your normal login user, without `sudo`. For a
+private repository, your GitHub account must have access. With HTTPS, enter
+your GitHub username and use a personal access token with repository read
+access when Git asks for a password; a GitHub account password will not work.
+Do not put the token in the clone URL. See
+[GitHub authentication](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/about-authentication-to-github).
+An SSH key configured for this same Linux user is another option.
 
 ```sh
 git clone https://github.com/vextryl/vexbot.git /srv/vexbot/source
 cd /srv/vexbot/source
 ```
+
+Keep the clone command on one line: `/srv/vexbot/source` is its destination.
+If this checkout already exists, use `cd /srv/vexbot/source` and `git status`
+instead of cloning again.
 
 Create the environment file outside the repository so it cannot be accidentally
 committed. Replace every placeholder before continuing:
@@ -146,6 +201,10 @@ down the file because it contains the Discord token:
 sudo chmod 600 /srv/vexbot/vexbot.env
 ```
 
+The `/opt/whisper/...` values are paths **inside the container**, mapped from
+`/srv/vexbot/whisper` on the host. Docker's `--env-file` reads this file when
+the container is created; do not use `export` or quote the values here.
+
 ### 5. Build and start VexBot
 
 From the VexBot source directory, build the image:
@@ -154,6 +213,34 @@ From the VexBot source directory, build the image:
 cd /srv/vexbot/source
 sudo docker build --tag vexbot:local .
 ```
+
+Before starting the bot, verify the mounted Whisper executable can run inside
+the image:
+
+```sh
+sudo docker run --rm --network none \
+  --volume /srv/vexbot/whisper:/opt/whisper:ro \
+  --entrypoint /opt/whisper/whisper-cli vexbot:local --help
+```
+
+This should print Whisper's options. If it reports missing `libwhisper` or
+`libggml` libraries, repeat step 3 with `BUILD_SHARED_LIBS=OFF` and copy the
+rebuilt executable again.
+
+Check recording-directory permissions and model readability using the actual
+container user:
+
+```sh
+sudo docker run --rm --network none \
+  --mount type=bind,src=/srv/vexbot/recordings,dst=/app/recordings \
+  --mount type=bind,src=/srv/vexbot/whisper,dst=/opt/whisper,readonly \
+  --entrypoint sh vexbot:local -ec \
+  'id; probe=$(mktemp /app/recordings/.vexbot-check.XXXXXX); rm "$probe"; test -r /opt/whisper/models/ggml-base.en.bin; echo "Storage checks passed"'
+```
+
+If writing fails, repeat `sudo chown 10001:10001 /srv/vexbot/recordings`.
+If the model check fails, complete the model installation in step 3. These
+checks do not connect to Discord.
 
 Start one named container. The first mount preserves recordings and transcripts;
 the second makes the host's local Whisper executable and model available without
@@ -172,34 +259,53 @@ sudo docker run --detach --name vexbot --restart unless-stopped \
 Check that the container is running and watch its startup log:
 
 ```sh
-sudo docker ps
+sudo docker ps --all --filter name=vexbot
 sudo docker logs --follow vexbot
 ```
 
 You should see VexBot connect to Discord and register its commands. In Discord,
-run `/ping`, then join a voice channel and run `/join`. Use `/stop` after saying
-a few words. The transcript and WAV files should appear on the host under
-`/srv/vexbot/recordings/`.
+run `/ping`, then join a voice channel and run `/join` in a text channel. Use
+`/stop` from the same Discord account after saying a few words; only the
+recording's starter can stop it. The transcript and WAV files should appear
+under `/srv/vexbot/recordings/`. Transcription progress and the completed
+attachment appear in the text channel where `/join` was used.
+Press **Ctrl+C** to leave the log viewer; this does not stop the detached bot.
+If the container exits or restarts, inspect its logs for missing configuration
+or dependency errors before testing commands in Discord.
 
 Useful everyday commands:
 
 ```sh
 sudo docker logs --follow vexbot  # watch VexBot logs
-sudo docker restart vexbot        # restart after a configuration change
+sudo docker restart vexbot        # restart with the existing configuration
 sudo docker stop vexbot           # stop cleanly; VexBot finalizes recordings
 sudo docker start vexbot          # start it again
 ```
 
-To update VexBot later, run these commands. They remove only the container—not
-your recordings, Whisper executable, model, or secret environment file:
+Changes to `vexbot.env` require removing and recreating the container with the
+same `docker run` command from step 5; `docker restart` does not reread that
+file. For a configuration-only change, no image rebuild is needed.
+
+Before an update or restart, use `/stop` and wait for transcript delivery if
+you want the current recording transcribed. Application shutdown finalizes
+recordings but does not start transcription, and in-progress transcription
+is not guaranteed to finish before process exit.
+
+To update VexBot later, pull and build first so a failed build leaves the
+existing container available. Then replace the container. These commands
+preserve recordings, Whisper files, and the environment file:
+
+```sh
+cd /srv/vexbot/source
+git pull --ff-only
+sudo docker build --tag vexbot:local .
+```
+
+Only after the build succeeds:
 
 ```sh
 sudo docker stop vexbot
 sudo docker rm vexbot
-
-cd /srv/vexbot/source
-git pull
-sudo docker build --tag vexbot:local .
 
 sudo docker run --detach --name vexbot --restart unless-stopped \
   --env-file /srv/vexbot/vexbot.env \
@@ -234,9 +340,9 @@ Set these values in `.env`:
 
 After `/stop`, VexBot uses local `ffmpeg` to prepare each speaker turn as
 16 kHz mono PCM WAV audio and invokes the configured Whisper.cpp executable.
-Whisper runs on the host machine: VexBot does not upload audio, transcripts, or
-metadata to a cloud service, external AI service, or any other remote
-transcription provider. The Whisper executable and model both remain local.
+Whisper runs locally, either directly on the host or inside its Docker
+container. Audio is not sent to a remote transcription provider. The completed
+transcript is uploaded to Discord; the Whisper executable and model remain local.
 
 Temporary per-turn audio and Whisper output are removed as each turn finishes.
 
@@ -281,7 +387,7 @@ transcription directories are protected from this cleanup.
 - `internal/dave` provides local Discord DAVE session support and decrypt-failure logging.
 - `internal/discord` handles Discord commands, interactions, voice connections,
   and display-name snapshots.
-- `internal/recording` manages output recording filenames.
+- `internal/recording` manages output recording filenames and retention cleanup.
 - `internal/session` owns active recording sessions and transcription progress.
 - `internal/speaker` normalizes and resolves readable speaker labels.
 - `internal/transcript` writes the chronological combined transcript.
@@ -295,4 +401,6 @@ transcription directories are protected from this cleanup.
 - [x] Record speaker-separated audio.
 - [x] Transcribe locally with Whisper.cpp.
 - [x] Generate timestamped transcripts.
-- [ ] Upload or otherwise share a completed transcript from the session.
+- [x] Upload completed transcripts to Discord with progress reporting.
+- [x] Package the bot for Docker deployment.
+- [ ] Add automated CI build and test checks.
