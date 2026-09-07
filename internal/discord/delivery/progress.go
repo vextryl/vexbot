@@ -1,4 +1,4 @@
-package discord
+package delivery
 
 import (
 	"log/slog"
@@ -14,7 +14,7 @@ type transcriptStatusMessage interface {
 
 type transcriptDeliveryStatus interface {
 	transcriptStatusMessage
-	Complete(snowflake.ID, snowflake.ID, snowflake.ID, string, int) error
+	Complete(snowflake.ID, snowflake.ID, snowflake.ID, Attachment, string) error
 }
 
 type activeTranscriptStatus struct {

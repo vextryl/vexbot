@@ -1,4 +1,4 @@
-package discord
+package member
 
 import (
 	"testing"

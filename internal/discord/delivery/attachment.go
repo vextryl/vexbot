@@ -1,4 +1,5 @@
-package discord
+// Package delivery presents local VexBot artifacts in Discord messages.
+package delivery
 
 import (
 	"errors"
@@ -33,29 +34,36 @@ func TranscriptUploadLimit(value string) (int64, error) {
 	return limit, nil
 }
 
-// TranscriptTooLargeError reports that a local transcript exceeds VexBot's
+// Attachment identifies a local file to be delivered through Discord.
+type Attachment struct {
+	Path        string
+	Name        string
+	Description string
+}
+
+// AttachmentTooLargeError reports that a local attachment exceeds VexBot's
 // configured Discord attachment ceiling.
-type TranscriptTooLargeError struct {
+type AttachmentTooLargeError struct {
 	SizeBytes  int64
 	LimitBytes int64
 }
 
-func (e *TranscriptTooLargeError) Error() string {
-	return fmt.Sprintf("transcript is %d bytes, exceeding the configured upload limit of %d bytes", e.SizeBytes, e.LimitBytes)
+func (e *AttachmentTooLargeError) Error() string {
+	return fmt.Sprintf("attachment is %d bytes, exceeding the configured upload limit of %d bytes", e.SizeBytes, e.LimitBytes)
 }
 
-type transcriptFileStat func(string) (fs.FileInfo, error)
+type attachmentFileStat func(string) (fs.FileInfo, error)
 
-func inspectTranscriptAttachment(path string, limit int64, stat transcriptFileStat) error {
+func inspectAttachment(path string, limit int64, stat attachmentFileStat) error {
 	if stat == nil {
 		stat = os.Stat
 	}
 	info, err := stat(path)
 	if err != nil {
-		return fmt.Errorf("stat transcript file: %w", err)
+		return fmt.Errorf("stat attachment file: %w", err)
 	}
 	if info.Size() > normalizeTranscriptUploadLimit(limit) {
-		return &TranscriptTooLargeError{
+		return &AttachmentTooLargeError{
 			SizeBytes:  info.Size(),
 			LimitBytes: normalizeTranscriptUploadLimit(limit),
 		}
@@ -70,8 +78,8 @@ func normalizeTranscriptUploadLimit(limit int64) int64 {
 	return limit
 }
 
-func isTranscriptTooLarge(err error) (*TranscriptTooLargeError, bool) {
-	var tooLarge *TranscriptTooLargeError
+func isAttachmentTooLarge(err error) (*AttachmentTooLargeError, bool) {
+	var tooLarge *AttachmentTooLargeError
 	matched := errors.As(err, &tooLarge)
 	return tooLarge, matched
 }

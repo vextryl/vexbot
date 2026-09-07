@@ -1,11 +1,10 @@
-package discord
+// Package voice manages VexBot's Discord voice connections and recording setup.
+package voice
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/disgoorg/disgo/cache"
 	"github.com/disgoorg/disgo/voice"
@@ -14,28 +13,6 @@ import (
 	"github.com/vextryl/vexbot/internal/dave"
 	"github.com/vextryl/vexbot/internal/session"
 )
-
-// BotUserIDFromToken extracts the Discord application ID embedded in a bot
-// token for voice-manager setup.
-func BotUserIDFromToken(token string) (snowflake.ID, error) {
-	parts := strings.Split(token, ".")
-	if len(parts) < 1 {
-		return 0, fmt.Errorf("invalid Discord bot token")
-	}
-
-	decoded, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil {
-		return 0, fmt.Errorf("failed to decode bot token: %w", err)
-	}
-
-	var id uint64
-	_, err = fmt.Sscanf(string(decoded), "%d", &id)
-	if err != nil {
-		return 0, fmt.Errorf("failed to parse bot user ID: %w", err)
-	}
-
-	return snowflake.ID(id), nil
-}
 
 // NewVoiceManager creates the Discord voice manager used by VexBot.
 func NewVoiceManager(

@@ -1,4 +1,4 @@
-package discord
+package delivery
 
 import (
 	"errors"
@@ -11,7 +11,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 )
 
-func TestTranscriptUploaderUploadsTranscriptAttachment(t *testing.T) {
+func TestUploaderUploadsLocalAttachment(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "completed-transcript.txt")
 	if err := os.WriteFile(path, []byte("[00:00] Alex: Hello.\n"), 0o644); err != nil {
@@ -19,8 +19,8 @@ func TestTranscriptUploaderUploadsTranscriptAttachment(t *testing.T) {
 	}
 
 	sender := &testTranscriptMessageSender{}
-	uploader := &TranscriptUploader{sender: sender, uploadLimit: 1024}
-	if err := uploader.Upload(42, 99, path, 3); err != nil {
+	uploader := &Uploader{sender: sender, uploadLimit: 1024}
+	if err := uploader.Upload(42, 99, transcriptAttachment(path), transcriptReadyMessage(99, 3)); err != nil {
 		t.Fatalf("Upload() error = %v", err)
 	}
 
@@ -45,7 +45,26 @@ func TestTranscriptUploaderUploadsTranscriptAttachment(t *testing.T) {
 	}
 }
 
-func TestTranscriptUploaderAllowsTranscriptAtConfiguredLimit(t *testing.T) {
+func TestUploaderPreservesArbitraryAttachmentMetadata(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.json")
+	if err := os.WriteFile(path, []byte(`{"session":"demo"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	sender := &testTranscriptMessageSender{}
+	attachment := Attachment{Path: path, Name: "session.json", Description: "VexBot session metadata"}
+	if err := (&Uploader{sender: sender, uploadLimit: 1024}).Upload(42, 99, attachment, "Session export ready."); err != nil {
+		t.Fatalf("Upload() error = %v", err)
+	}
+	if sender.message.Content != "Session export ready." {
+		t.Fatalf("message content = %q", sender.message.Content)
+	}
+	if len(sender.message.Files) != 1 || sender.message.Files[0].Name != attachment.Name || sender.message.Files[0].Description != attachment.Description {
+		t.Fatalf("attachment = %#v, want %#v", sender.message.Files, attachment)
+	}
+}
+
+func TestUploaderAllowsAttachmentAtConfiguredLimit(t *testing.T) {
 	path := filepath.Join(t.TempDir(), transcriptAttachmentName)
 	contents := []byte("1234")
 	if err := os.WriteFile(path, contents, 0o644); err != nil {
@@ -53,7 +72,7 @@ func TestTranscriptUploaderAllowsTranscriptAtConfiguredLimit(t *testing.T) {
 	}
 
 	sender := &testTranscriptMessageSender{}
-	err := (&TranscriptUploader{sender: sender, uploadLimit: int64(len(contents))}).Upload(42, 99, path, 1)
+	err := (&Uploader{sender: sender, uploadLimit: int64(len(contents))}).Upload(42, 99, transcriptAttachment(path), transcriptReadyMessage(99, 1))
 	if err != nil {
 		t.Fatalf("Upload() error = %v", err)
 	}
@@ -62,15 +81,15 @@ func TestTranscriptUploaderAllowsTranscriptAtConfiguredLimit(t *testing.T) {
 	}
 }
 
-func TestTranscriptUploaderRejectsOversizedTranscriptWithoutSending(t *testing.T) {
+func TestUploaderRejectsOversizedAttachmentWithoutSending(t *testing.T) {
 	path := filepath.Join(t.TempDir(), transcriptAttachmentName)
 	if err := os.WriteFile(path, []byte("12345"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
 	sender := &testTranscriptMessageSender{}
-	err := (&TranscriptUploader{sender: sender, uploadLimit: 4}).Upload(42, 99, path, 1)
-	tooLarge, ok := isTranscriptTooLarge(err)
+	err := (&Uploader{sender: sender, uploadLimit: 4}).Upload(42, 99, transcriptAttachment(path), transcriptReadyMessage(99, 1))
+	tooLarge, ok := isAttachmentTooLarge(err)
 	if !ok || tooLarge.SizeBytes != 5 || tooLarge.LimitBytes != 4 {
 		t.Fatalf("Upload() error = %v, want a 5-byte/4-byte limit error", err)
 	}
@@ -79,15 +98,15 @@ func TestTranscriptUploaderRejectsOversizedTranscriptWithoutSending(t *testing.T
 	}
 }
 
-func TestTranscriptUploaderReportsFileStatFailure(t *testing.T) {
+func TestUploaderReportsFileStatFailure(t *testing.T) {
 	want := errors.New("disk unavailable")
 	sender := &testTranscriptMessageSender{}
-	err := (&TranscriptUploader{
+	err := (&Uploader{
 		sender: sender,
 		stat: func(string) (os.FileInfo, error) {
 			return nil, want
 		},
-	}).Upload(42, 99, "recordings/session/transcript.txt", 1)
+	}).Upload(42, 99, transcriptAttachment("recordings/session/transcript.txt"), transcriptReadyMessage(99, 1))
 	if !errors.Is(err, want) {
 		t.Fatalf("Upload() error = %v, want wrapped %v", err, want)
 	}
@@ -96,9 +115,9 @@ func TestTranscriptUploaderReportsFileStatFailure(t *testing.T) {
 	}
 }
 
-func TestTranscriptUploaderRejectsMissingFile(t *testing.T) {
+func TestUploaderRejectsMissingFile(t *testing.T) {
 	sender := &testTranscriptMessageSender{}
-	err := (&TranscriptUploader{sender: sender}).Upload(42, 99, filepath.Join(t.TempDir(), "missing.txt"), 0)
+	err := (&Uploader{sender: sender}).Upload(42, 99, transcriptAttachment(filepath.Join(t.TempDir(), "missing.txt")), transcriptReadyMessage(99, 0))
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Upload() error = %v, want missing-file error", err)
 	}
@@ -107,7 +126,7 @@ func TestTranscriptUploaderRejectsMissingFile(t *testing.T) {
 	}
 }
 
-func TestTranscriptUploaderReportsDiscordDeliveryFailure(t *testing.T) {
+func TestUploaderReportsDiscordDeliveryFailure(t *testing.T) {
 	path := filepath.Join(t.TempDir(), transcriptAttachmentName)
 	if err := os.WriteFile(path, []byte("transcript"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -115,7 +134,7 @@ func TestTranscriptUploaderReportsDiscordDeliveryFailure(t *testing.T) {
 
 	want := errors.New("missing Attach Files permission")
 	sender := &testTranscriptMessageSender{err: want}
-	err := (&TranscriptUploader{sender: sender}).Upload(42, 99, path, 1)
+	err := (&Uploader{sender: sender}).Upload(42, 99, transcriptAttachment(path), transcriptReadyMessage(99, 1))
 	if !errors.Is(err, want) {
 		t.Fatalf("Upload() error = %v, want wrapped %v", err, want)
 	}
@@ -129,7 +148,7 @@ type testTranscriptMessageSender struct {
 	called    bool
 }
 
-func (s *testTranscriptMessageSender) CreateTranscriptMessage(channelID snowflake.ID, message discord.MessageCreate) error {
+func (s *testTranscriptMessageSender) CreateMessage(channelID snowflake.ID, message discord.MessageCreate) error {
 	s.called = true
 	s.channelID = channelID
 	s.message = message

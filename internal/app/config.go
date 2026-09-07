@@ -9,7 +9,8 @@ import (
 	"strings"
 
 	"github.com/disgoorg/snowflake/v2"
-	discordbot "github.com/vextryl/vexbot/internal/discord"
+	"github.com/vextryl/vexbot/internal/discord/auth"
+	"github.com/vextryl/vexbot/internal/discord/delivery"
 	"github.com/vextryl/vexbot/internal/recording"
 	"github.com/vextryl/vexbot/internal/whisper"
 )
@@ -49,7 +50,7 @@ func validateStartupConfig(getenv func(string) string, dependencies configDepend
 
 	if config.token == "" {
 		validationErrors = append(validationErrors, fmt.Errorf("%s must be set", discordTokenEnv))
-	} else if botUserID, err := discordbot.BotUserIDFromToken(config.token); err != nil {
+	} else if botUserID, err := auth.BotUserIDFromToken(config.token); err != nil {
 		validationErrors = append(validationErrors, fmt.Errorf("%s is invalid", discordTokenEnv))
 	} else {
 		config.botUserID = botUserID
@@ -67,7 +68,7 @@ func validateStartupConfig(getenv func(string) string, dependencies configDepend
 		config.retentionCount = retentionCount
 	}
 
-	uploadLimit, err := discordbot.TranscriptUploadLimit(getenv(discordbot.TranscriptUploadLimitEnv))
+	uploadLimit, err := delivery.TranscriptUploadLimit(getenv(delivery.TranscriptUploadLimitEnv))
 	if err != nil {
 		validationErrors = append(validationErrors, err)
 	} else {

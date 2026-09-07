@@ -1,4 +1,4 @@
-package discord
+package delivery
 
 import (
 	"errors"
@@ -49,7 +49,7 @@ func TestTranscriptStatusAttachesCompletedTranscript(t *testing.T) {
 	}
 
 	sender := &testTranscriptStatusSender{}
-	if err := (&TranscriptStatus{sender: sender}).Complete(42, 99, 123, path, 3); err != nil {
+	if err := (&TranscriptStatus{sender: sender}).Complete(42, 99, 123, transcriptAttachment(path), transcriptCompletionMessage(123, 3)); err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
 	if got, want := *sender.updated.Content, "Transcription complete.\n[🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩] 100% ✅\n<@123> — here is your final transcript — 3 line(s)."; got != want {
@@ -73,8 +73,8 @@ func TestTranscriptStatusDoesNotAttachOversizedTranscript(t *testing.T) {
 	}
 
 	sender := &testTranscriptStatusSender{}
-	err := (&TranscriptStatus{sender: sender, uploadLimit: 4}).Complete(42, 99, 123, path, 1)
-	tooLarge, ok := isTranscriptTooLarge(err)
+	err := (&TranscriptStatus{sender: sender, uploadLimit: 4}).Complete(42, 99, 123, transcriptAttachment(path), transcriptCompletionMessage(123, 1))
+	tooLarge, ok := isAttachmentTooLarge(err)
 	if !ok || tooLarge.SizeBytes != 5 || tooLarge.LimitBytes != 4 {
 		t.Fatalf("Complete() error = %v, want a 5-byte/4-byte limit error", err)
 	}
@@ -95,7 +95,7 @@ func TestTranscriptStatusReportsCreateUpdateAndFileFailures(t *testing.T) {
 	if err := status.Update(42, 99, TranscriptStatusUpdate{}); !errors.Is(err, updateFailure) {
 		t.Fatalf("Update() error = %v, want wrapped %v", err, updateFailure)
 	}
-	if err := status.Complete(42, 99, 123, filepath.Join(t.TempDir(), "missing.txt"), 0); !errors.Is(err, os.ErrNotExist) {
+	if err := status.Complete(42, 99, 123, transcriptAttachment(filepath.Join(t.TempDir(), "missing.txt")), transcriptCompletionMessage(123, 0)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("Complete() missing-file error = %v, want missing file", err)
 	}
 }

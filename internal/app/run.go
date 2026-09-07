@@ -17,7 +17,8 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/joho/godotenv"
 	"github.com/vextryl/vexbot/internal/dave"
-	discordbot "github.com/vextryl/vexbot/internal/discord"
+	"github.com/vextryl/vexbot/internal/discord/command"
+	discordvoice "github.com/vextryl/vexbot/internal/discord/voice"
 	"github.com/vextryl/vexbot/internal/session"
 )
 
@@ -47,7 +48,7 @@ func Run() {
 	var client *bot.Client
 
 	daveFailures := dave.NewDecryptFailureCounter()
-	voiceManager := discordbot.NewVoiceManager(
+	voiceManager := discordvoice.NewVoiceManager(
 		func(
 			ctx context.Context,
 			guildID snowflake.ID,
@@ -101,7 +102,7 @@ func Run() {
 	client.AddEventListeners(
 		&events.ListenerAdapter{
 			OnApplicationCommandInteraction: func(event *events.ApplicationCommandInteractionCreate) {
-				discordbot.HandleApplicationCommandInteraction(runContext, event, client, voiceManager, sessions, config.retentionCount, config.uploadLimit, daveFailures, logger)
+				command.HandleApplicationCommandInteraction(runContext, event, client, voiceManager, sessions, config.retentionCount, config.uploadLimit, daveFailures, logger)
 			},
 			OnGuildVoiceStateUpdate: func(event *events.GuildVoiceStateUpdate) {
 				attributes := []any{
@@ -129,7 +130,7 @@ func Run() {
 	// status
 	logger.Info("connected to Discord")
 
-	err = discordbot.RegisterCommands(client, config.guildID, logger)
+	err = command.RegisterCommands(client, config.guildID, logger)
 	if err != nil {
 		logger.Error("registering commands", "err", err)
 		return

@@ -1,4 +1,4 @@
-package discord
+package command
 
 import (
 	"context"
@@ -9,9 +9,11 @@ import (
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/voice"
 	"github.com/vextryl/vexbot/internal/dave"
+	"github.com/vextryl/vexbot/internal/discord/delivery"
+	"github.com/vextryl/vexbot/internal/discord/member"
+	discordvoice "github.com/vextryl/vexbot/internal/discord/voice"
 	"github.com/vextryl/vexbot/internal/recording"
 	"github.com/vextryl/vexbot/internal/session"
-	"github.com/vextryl/vexbot/internal/speaker"
 	"github.com/vextryl/vexbot/internal/wav"
 )
 
@@ -67,7 +69,7 @@ func handleJoin(
 	}
 
 	user := event.User()
-	voiceChannelID, err := UserVoiceChannelID(client.Caches, *guildID, user.ID)
+	voiceChannelID, err := discordvoice.UserVoiceChannelID(client.Caches, *guildID, user.ID)
 	if err != nil {
 		_ = event.CreateMessage(discord.MessageCreate{Content: "You must be in a voice channel to use this command."})
 		return
@@ -120,7 +122,7 @@ func handleJoin(
 	}
 
 	go func() {
-		session, voiceChannelID, err := JoinUserVoiceChannel(
+		session, voiceChannelID, err := discordvoice.JoinUserVoiceChannel(
 			ctx,
 			voiceManager,
 			*guildID,
@@ -192,11 +194,11 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.C
 		})
 		return
 	}
-	stoppedRecording.DisplayNames = SnapshotDisplayNames(client.Caches, *guildID, stoppedRecording.Files)
+	stoppedRecording.DisplayNames = member.SnapshotDisplayNames(client.Caches, *guildID, stoppedRecording.Files)
 	if channel, ok := client.Caches.Channel(stoppedRecording.VoiceChannelID); ok {
 		stoppedRecording.TranscriptMetadata.VoiceChannel = channel.Name()
 	}
-	stoppedRecording.TranscriptMetadata.Participants = transcriptParticipantNames(stoppedRecording.Files, stoppedRecording.DisplayNames)
+	stoppedRecording.TranscriptMetadata.Participants = member.TranscriptParticipantNames(stoppedRecording.Files, stoppedRecording.DisplayNames)
 	if renamedFiles, err := recording.RenameFiles(stoppedRecording.Files, stoppedRecording.DisplayNames); err != nil {
 		logError(logger, "renaming recording files",
 			"err", err,
@@ -229,13 +231,13 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.C
 		Content: message,
 	})
 	if transcriptionStarted {
-		deliverTranscript(
+		delivery.StartTranscriptDelivery(
 			transcriptionJob,
 			*guildID,
 			stoppedRecording.TranscriptChannelID,
 			event.User().ID,
-			NewTranscriptStatus(client.Rest, uploadLimit),
-			NewTranscriptUploader(client.Rest, uploadLimit),
+			delivery.NewTranscriptStatus(client.Rest, uploadLimit),
+			delivery.NewUploader(client.Rest, uploadLimit),
 			logger,
 		)
 	}
@@ -245,15 +247,4 @@ func logError(logger *slog.Logger, message string, args ...any) {
 	if logger != nil {
 		logger.Error(message, args...)
 	}
-}
-
-func transcriptParticipantNames(files []wav.File, displayNames map[string]string) []string {
-	participants := make([]string, 0, len(files))
-	for _, file := range files {
-		userID := file.UserID.String()
-		if displayName := speaker.Normalize(displayNames[userID]); displayName != "" && displayName != userID {
-			participants = append(participants, displayName)
-		}
-	}
-	return participants
 }

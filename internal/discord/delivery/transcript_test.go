@@ -1,4 +1,4 @@
-package discord
+package delivery
 
 import (
 	"context"
@@ -26,8 +26,8 @@ func TestUploadCompletedTranscriptUploadsSuccessfulResult(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("uploader was not called")
 	}
-	if uploader.channelID != 2 || uploader.recipientID != 3 || uploader.path != "recordings/session/transcript.txt" || uploader.lineCount != 12 {
-		t.Fatalf("upload = channel %v, recipient %v, path %q, lines %d", uploader.channelID, uploader.recipientID, uploader.path, uploader.lineCount)
+	if uploader.channelID != 2 || uploader.recipientID != 3 || uploader.attachment.Path != "recordings/session/transcript.txt" || uploader.content != transcriptReadyMessage(3, 12) {
+		t.Fatalf("upload = channel %v, recipient %v, attachment %#v, content %q", uploader.channelID, uploader.recipientID, uploader.attachment, uploader.content)
 	}
 }
 
@@ -85,7 +85,7 @@ func TestDeliverTranscriptUpdatesStatusThenAttachesTranscript(t *testing.T) {
 	if got, want := events[1], (testTranscriptDeliveryEvent{kind: "update", update: TranscriptStatusUpdate{Phase: "complete", CompletedTurns: 10, TotalTurns: 10, Percent: 100}}); got != want {
 		t.Fatalf("second event = %#v, want %#v", got, want)
 	}
-	if got, want := events[2], (testTranscriptDeliveryEvent{kind: "complete", recipientID: 3, path: "recordings/session/transcript.txt", lineCount: 12}); got != want {
+	if got, want := events[2], (testTranscriptDeliveryEvent{kind: "complete", recipientID: 3, path: "recordings/session/transcript.txt", content: transcriptCompletionMessage(3, 12)}); got != want {
 		t.Fatalf("final event = %#v, want %#v", got, want)
 	}
 	select {
@@ -144,7 +144,7 @@ func TestDeliverTranscriptReportsOversizedTranscriptInStatus(t *testing.T) {
 	progress := make(chan session.TranscriptionProgress, 1)
 	completion := make(chan session.TranscriptionResult, 1)
 	status := newTestTranscriptDeliveryStatus()
-	status.completeErr = &TranscriptTooLargeError{SizeBytes: 9, LimitBytes: 8}
+	status.completeErr = &AttachmentTooLargeError{SizeBytes: 9, LimitBytes: 8}
 	logs := newTestLogCapture()
 
 	deliverTranscript(session.TranscriptionJob{Progress: progress, Completion: completion}, 1, 2, 3, status, &testTranscriptUploader{called: make(chan struct{}, 1)}, slog.New(logs))
@@ -187,16 +187,16 @@ func TestDeliverTranscriptFallsBackWhenStatusCreationFails(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("fallback uploader was not called")
 	}
-	if uploader.channelID != 2 || uploader.recipientID != 3 || uploader.path != "recordings/session/transcript.txt" || uploader.lineCount != 12 {
-		t.Fatalf("fallback upload = channel %v, recipient %v, path %q, lines %d", uploader.channelID, uploader.recipientID, uploader.path, uploader.lineCount)
+	if uploader.channelID != 2 || uploader.recipientID != 3 || uploader.attachment.Path != "recordings/session/transcript.txt" || uploader.content != transcriptReadyMessage(3, 12) {
+		t.Fatalf("fallback upload = channel %v, recipient %v, attachment %#v, content %q", uploader.channelID, uploader.recipientID, uploader.attachment, uploader.content)
 	}
 }
 
 type testTranscriptUploader struct {
 	channelID   snowflake.ID
 	recipientID snowflake.ID
-	path        string
-	lineCount   int
+	attachment  Attachment
+	content     string
 	err         error
 	called      chan struct{}
 }
@@ -206,7 +206,7 @@ type testTranscriptDeliveryEvent struct {
 	update      TranscriptStatusUpdate
 	recipientID snowflake.ID
 	path        string
-	lineCount   int
+	content     string
 }
 
 type testTranscriptDeliveryStatus struct {
@@ -231,8 +231,8 @@ func (s *testTranscriptDeliveryStatus) Update(_ snowflake.ID, _ snowflake.ID, up
 	return nil
 }
 
-func (s *testTranscriptDeliveryStatus) Complete(_ snowflake.ID, _ snowflake.ID, recipientID snowflake.ID, path string, lineCount int) error {
-	s.events <- testTranscriptDeliveryEvent{kind: "complete", recipientID: recipientID, path: path, lineCount: lineCount}
+func (s *testTranscriptDeliveryStatus) Complete(_ snowflake.ID, _ snowflake.ID, recipientID snowflake.ID, attachment Attachment, content string) error {
+	s.events <- testTranscriptDeliveryEvent{kind: "complete", recipientID: recipientID, path: attachment.Path, content: content}
 	return s.completeErr
 }
 
@@ -250,11 +250,11 @@ func (s *testTranscriptDeliveryStatus) waitForEvents(t *testing.T, count int) []
 	return events
 }
 
-func (u *testTranscriptUploader) Upload(channelID, recipientID snowflake.ID, path string, lineCount int) error {
+func (u *testTranscriptUploader) Upload(channelID, recipientID snowflake.ID, attachment Attachment, content string) error {
 	u.channelID = channelID
 	u.recipientID = recipientID
-	u.path = path
-	u.lineCount = lineCount
+	u.attachment = attachment
+	u.content = content
 	u.called <- struct{}{}
 	return u.err
 }

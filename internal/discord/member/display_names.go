@@ -1,5 +1,5 @@
-// Package discord contains helpers that adapt Discord-specific data for VexBot.
-package discord
+// Package member adapts Discord member and channel data for VexBot metadata.
+package member
 
 import (
 	"github.com/vextryl/vexbot/internal/speaker"

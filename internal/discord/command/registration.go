@@ -1,4 +1,5 @@
-package discord
+// Package command registers and handles VexBot's Discord slash commands.
+package command
 
 import (
 	"log/slog"

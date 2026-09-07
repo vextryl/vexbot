@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	discordbot "github.com/vextryl/vexbot/internal/discord"
+	"github.com/vextryl/vexbot/internal/discord/delivery"
 	"github.com/vextryl/vexbot/internal/recording"
 	"github.com/vextryl/vexbot/internal/whisper"
 )
@@ -23,16 +23,16 @@ func TestValidateStartupConfigAcceptsEnabledLocalTranscription(t *testing.T) {
 	if err != nil {
 		t.Fatalf("validateStartupConfig() error = %v", err)
 	}
-	if config.botUserID.String() != "123" || config.retentionCount != recording.DefaultRetentionCount || config.uploadLimit != discordbot.DefaultTranscriptUploadLimitBytes || config.transcriber == nil {
+	if config.botUserID.String() != "123" || config.retentionCount != recording.DefaultRetentionCount || config.uploadLimit != delivery.DefaultTranscriptUploadLimitBytes || config.transcriber == nil {
 		t.Fatalf("startup config = %#v, want parsed Discord and Whisper configuration", config)
 	}
 }
 
 func TestValidateStartupConfigAcceptsConfiguredTranscriptUploadLimit(t *testing.T) {
 	config, err := validateStartupConfig(testEnvironment(map[string]string{
-		discordTokenEnv:                     "MTIz.NA.signature",
-		discordGuildIDEnv:                   "456",
-		discordbot.TranscriptUploadLimitEnv: "12345",
+		discordTokenEnv:                   "MTIz.NA.signature",
+		discordGuildIDEnv:                 "456",
+		delivery.TranscriptUploadLimitEnv: "12345",
 	}), testConfigDependencies(t, ""))
 	if err != nil {
 		t.Fatalf("validateStartupConfig() error = %v", err)
@@ -44,11 +44,11 @@ func TestValidateStartupConfigAcceptsConfiguredTranscriptUploadLimit(t *testing.
 
 func TestValidateStartupConfigRejectsInvalidTranscriptUploadLimit(t *testing.T) {
 	_, err := validateStartupConfig(testEnvironment(map[string]string{
-		discordTokenEnv:                     "MTIz.NA.signature",
-		discordGuildIDEnv:                   "456",
-		discordbot.TranscriptUploadLimitEnv: "not-a-number",
+		discordTokenEnv:                   "MTIz.NA.signature",
+		discordGuildIDEnv:                 "456",
+		delivery.TranscriptUploadLimitEnv: "not-a-number",
 	}), testConfigDependencies(t, ""))
-	if err == nil || !strings.Contains(err.Error(), discordbot.TranscriptUploadLimitEnv) {
+	if err == nil || !strings.Contains(err.Error(), delivery.TranscriptUploadLimitEnv) {
 		t.Fatalf("validateStartupConfig() error = %v, want upload-limit error", err)
 	}
 }

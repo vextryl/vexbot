@@ -1,6 +1,7 @@
-package discord
+package delivery
 
 import (
+	"fmt"
 	"log/slog"
 
 	"github.com/disgoorg/snowflake/v2"
@@ -8,7 +9,21 @@ import (
 )
 
 type transcriptUploader interface {
-	Upload(snowflake.ID, snowflake.ID, string, int) error
+	Upload(snowflake.ID, snowflake.ID, Attachment, string) error
+}
+
+const transcriptAttachmentName = "transcript.txt"
+
+// StartTranscriptDelivery presents progress for one local transcription and
+// delivers its completed transcript to Discord.
+func StartTranscriptDelivery(
+	job session.TranscriptionJob,
+	guildID, channelID, recipientID snowflake.ID,
+	status *TranscriptStatus,
+	uploader *Uploader,
+	logger *slog.Logger,
+) {
+	deliverTranscript(job, guildID, channelID, recipientID, status, uploader, logger)
 }
 
 // deliverTranscript uses a normal status message for transcription progress
@@ -55,12 +70,13 @@ func deliverTranscript(
 				Percent: 100,
 			})
 		}
-		if err := status.Complete(channelID, activeStatus.messageID, recipientID, result.TranscriptPath, result.LineCount); err != nil {
+		attachment := transcriptAttachment(result.TranscriptPath)
+		if err := status.Complete(channelID, activeStatus.messageID, recipientID, attachment, transcriptCompletionMessage(recipientID, result.LineCount)); err != nil {
 			phase := "delivery_failed"
-			if _, tooLarge := isTranscriptTooLarge(err); tooLarge {
+			if _, tooLarge := isAttachmentTooLarge(err); tooLarge {
 				phase = "attachment_too_large"
 			}
-			logTranscriptDeliveryFailure(logger, err, guildID, channelID, result.TranscriptPath)
+			logTranscriptDeliveryFailure(logger, err, guildID, channelID, attachment.Path)
 			activeStatus.update(TranscriptStatusUpdate{Phase: phase, Percent: 100, RecipientID: recipientID})
 			return
 		}
@@ -127,8 +143,9 @@ func uploadCompletedTranscript(
 			return
 		}
 
-		if err := uploader.Upload(channelID, recipientID, result.TranscriptPath, result.LineCount); err != nil {
-			logTranscriptDeliveryFailure(logger, err, guildID, channelID, result.TranscriptPath)
+		attachment := transcriptAttachment(result.TranscriptPath)
+		if err := uploader.Upload(channelID, recipientID, attachment, transcriptReadyMessage(recipientID, result.LineCount)); err != nil {
+			logTranscriptDeliveryFailure(logger, err, guildID, channelID, attachment.Path)
 			return
 		}
 
@@ -143,6 +160,22 @@ func uploadCompletedTranscript(
 	}()
 }
 
+func transcriptAttachment(path string) Attachment {
+	return Attachment{Path: path, Name: transcriptAttachmentName, Description: "VexBot transcript"}
+}
+
+func transcriptReadyMessage(recipientID snowflake.ID, lineCount int) string {
+	return fmt.Sprintf("Transcript ready. %d line(s).\n%s", lineCount, terminalRecipientMessage(recipientID, "here is your final transcript."))
+}
+
+func transcriptCompletionMessage(recipientID snowflake.ID, lineCount int) string {
+	return fmt.Sprintf(
+		"Transcription complete.\n%s 100%% ✅\n%s",
+		formatProgressBar(100, false),
+		terminalRecipientMessage(recipientID, fmt.Sprintf("here is your final transcript — %d line(s).", lineCount)),
+	)
+}
+
 func logTranscriptDeliveryFailure(logger *slog.Logger, err error, guildID, channelID snowflake.ID, transcriptPath string) {
 	attributes := []any{
 		"err", err,
@@ -150,11 +183,17 @@ func logTranscriptDeliveryFailure(logger *slog.Logger, err error, guildID, chann
 		slog.String("channel_id", channelID.String()),
 		slog.String("transcript_path", transcriptPath),
 	}
-	if tooLarge, ok := isTranscriptTooLarge(err); ok {
+	if tooLarge, ok := isAttachmentTooLarge(err); ok {
 		attributes = append(attributes,
 			slog.Int64("transcript_size_bytes", tooLarge.SizeBytes),
 			slog.Int64("upload_limit_bytes", tooLarge.LimitBytes),
 		)
 	}
 	logError(logger, "uploading transcript to Discord", attributes...)
+}
+
+func logError(logger *slog.Logger, message string, args ...any) {
+	if logger != nil {
+		logger.Error(message, args...)
+	}
 }

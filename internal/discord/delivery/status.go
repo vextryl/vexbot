@@ -1,4 +1,4 @@
-package discord
+package delivery
 
 import (
 	"fmt"
@@ -27,7 +27,7 @@ type TranscriptStatusUpdate struct {
 type TranscriptStatus struct {
 	sender      transcriptStatusSender
 	uploadLimit int64
-	stat        transcriptFileStat
+	stat        attachmentFileStat
 }
 
 type transcriptStatusSender interface {
@@ -78,38 +78,33 @@ func (s *TranscriptStatus) Update(channelID, messageID snowflake.ID, update Tran
 	content := FormatTranscriptStatus(update)
 	if err := s.sender.UpdateTranscriptStatusMessage(channelID, messageID, discord.MessageUpdate{
 		Content:         &content,
-		AllowedMentions: allowedTranscriptMention(update.RecipientID),
+		AllowedMentions: allowedRecipientMention(update.RecipientID),
 	}); err != nil {
 		return fmt.Errorf("update transcription status message: %w", err)
 	}
 	return nil
 }
 
-// Complete attaches the finished local transcript while marking the status
-// message as complete.
-func (s *TranscriptStatus) Complete(channelID, messageID, recipientID snowflake.ID, transcriptPath string, lineCount int) error {
-	if err := inspectTranscriptAttachment(transcriptPath, s.uploadLimit, s.stat); err != nil {
+// Complete attaches a finished local artifact while marking the status message
+// as complete.
+func (s *TranscriptStatus) Complete(channelID, messageID, recipientID snowflake.ID, attachment Attachment, content string) error {
+	if err := inspectAttachment(attachment.Path, s.uploadLimit, s.stat); err != nil {
 		return err
 	}
-	transcript, err := os.Open(transcriptPath)
+	file, err := os.Open(attachment.Path)
 	if err != nil {
-		return fmt.Errorf("open transcript file: %w", err)
+		return fmt.Errorf("open attachment file: %w", err)
 	}
-	defer transcript.Close()
+	defer file.Close()
 
-	content := fmt.Sprintf(
-		"Transcription complete.\n%s 100%% ✅\n%s",
-		formatProgressBar(100, false),
-		terminalTranscriptMessage(recipientID, fmt.Sprintf("here is your final transcript — %d line(s).", lineCount)),
-	)
 	if err := s.sender.UpdateTranscriptStatusMessage(channelID, messageID, discord.MessageUpdate{
 		Content: &content,
 		Files: []*discord.File{
-			discord.NewFile(transcriptAttachmentName, "VexBot transcript", transcript),
+			discord.NewFile(attachment.Name, attachment.Description, file),
 		},
-		AllowedMentions: allowedTranscriptMention(recipientID),
+		AllowedMentions: allowedRecipientMention(recipientID),
 	}); err != nil {
-		return fmt.Errorf("attach transcript to status message: %w", err)
+		return fmt.Errorf("attach artifact to status message: %w", err)
 	}
 	return nil
 }
@@ -119,13 +114,13 @@ func (s *TranscriptStatus) Complete(channelID, messageID, recipientID snowflake.
 func FormatTranscriptStatus(update TranscriptStatusUpdate) string {
 	percent := normalizeProgressPercent(update.Percent)
 	if update.Phase == "failed" {
-		return fmt.Sprintf("Transcription failed.\n%s ❌\n%s", formatProgressBar(percent, true), terminalTranscriptMessage(update.RecipientID, "the local recordings were kept."))
+		return fmt.Sprintf("Transcription failed.\n%s ❌\n%s", formatProgressBar(percent, true), terminalRecipientMessage(update.RecipientID, "the local recordings were kept."))
 	}
 	if update.Phase == "delivery_failed" {
-		return fmt.Sprintf("Discord delivery failed.\n%s ❌\n%s", formatProgressBar(percent, true), terminalTranscriptMessage(update.RecipientID, "the local transcript was kept."))
+		return fmt.Sprintf("Discord delivery failed.\n%s ❌\n%s", formatProgressBar(percent, true), terminalRecipientMessage(update.RecipientID, "the local transcript was kept."))
 	}
 	if update.Phase == "attachment_too_large" {
-		return fmt.Sprintf("Transcript is too large to upload.\n%s ❌\n%s", formatProgressBar(percent, true), terminalTranscriptMessage(update.RecipientID, "the local transcript was kept."))
+		return fmt.Sprintf("Transcript is too large to upload.\n%s ❌\n%s", formatProgressBar(percent, true), terminalRecipientMessage(update.RecipientID, "the local transcript was kept."))
 	}
 	indicator := "⏳"
 	if update.Phase == "complete" {
@@ -140,14 +135,14 @@ func FormatTranscriptStatus(update TranscriptStatusUpdate) string {
 	)
 }
 
-func terminalTranscriptMessage(recipientID snowflake.ID, message string) string {
+func terminalRecipientMessage(recipientID snowflake.ID, message string) string {
 	if recipientID == 0 {
 		return message
 	}
 	return fmt.Sprintf("<@%s> — %s", recipientID, message)
 }
 
-func allowedTranscriptMention(recipientID snowflake.ID) *discord.AllowedMentions {
+func allowedRecipientMention(recipientID snowflake.ID) *discord.AllowedMentions {
 	if recipientID == 0 {
 		return nil
 	}

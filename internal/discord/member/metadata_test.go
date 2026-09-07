@@ -1,4 +1,6 @@
-package discord
+package member
+
+// These tests cover Discord-derived metadata for local transcript headers.
 
 import (
 	"reflect"
@@ -10,7 +12,7 @@ import (
 
 func TestTranscriptParticipantNamesExcludesFallbackUserIDs(t *testing.T) {
 	files := []wav.File{{UserID: snowflake.ID(42)}, {UserID: snowflake.ID(99)}, {UserID: snowflake.ID(100)}}
-	got := transcriptParticipantNames(files, map[string]string{
+	got := TranscriptParticipantNames(files, map[string]string{
 		"42":  "Alex",
 		"99":  "99",
 		"100": "  Mörk 🐉  ",
