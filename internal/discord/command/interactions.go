@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -39,7 +40,49 @@ func HandleApplicationCommandInteraction(
 
 	case "stop":
 		handleStop(event, client, sessions, uploadLimit, failures, logger)
+
+	case "status":
+		handleStatus(event, sessions, logger)
 	}
+}
+
+func handleStatus(event *events.ApplicationCommandInteractionCreate, sessions *session.Manager, logger *slog.Logger) {
+	guildID := event.GuildID()
+	if guildID == nil {
+		_ = event.CreateMessage(discord.MessageCreate{Content: "This command can only be used in a server."})
+		return
+	}
+
+	status := sessions.Status(*guildID)
+	message := formatRecordingStatus(status)
+	if err := event.CreateMessage(discord.MessageCreate{Content: message}); err != nil {
+		logError(logger, "responding to status command", "err", err, slog.String("guild_id", guildID.String()))
+	}
+}
+
+func formatRecordingStatus(status session.RecordingStatus) string {
+	var message string
+	switch status.State {
+	case session.RecordingStateConnecting:
+		message = "Connecting to <#" + status.VoiceChannelID.String() + ">..."
+	case session.RecordingStateRecording:
+		message = fmt.Sprintf(
+			"Recording in <#%s> for %s. Captured audio from %d speaker(s).",
+			status.VoiceChannelID,
+			formatStatusElapsed(status.Elapsed),
+			status.SpeakerCount,
+		)
+	default:
+		message = "No active recording in this server."
+	}
+	return message
+}
+
+func formatStatusElapsed(elapsed time.Duration) string {
+	if elapsed < time.Second {
+		return "0s"
+	}
+	return elapsed.Round(time.Second).String()
 }
 
 func handlePing(event *events.ApplicationCommandInteractionCreate, logger *slog.Logger) {

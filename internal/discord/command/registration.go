@@ -24,6 +24,11 @@ var stopCommand = discord.SlashCommandCreate{
 	Description: "Stop recording and leave the voice channel",
 }
 
+var statusCommand = discord.SlashCommandCreate{
+	Name:        "status",
+	Description: "Show the current recording status",
+}
+
 // RegisterCommands installs VexBot's slash commands for a development guild.
 func RegisterCommands(client *bot.Client, guildID string, logger *slog.Logger) error {
 	guild, err := snowflake.Parse(guildID)
@@ -35,6 +40,7 @@ func RegisterCommands(client *bot.Client, guildID string, logger *slog.Logger) e
 		pingCommand,
 		joinCommand,
 		stopCommand,
+		statusCommand,
 	}
 
 	for _, command := range commands {

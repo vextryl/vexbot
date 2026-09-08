@@ -63,6 +63,41 @@ func TestManagerStartConsumesReservationAndKeepsSessionActive(t *testing.T) {
 	}
 }
 
+func TestManagerStatusReportsIdleConnectingAndRecordingStates(t *testing.T) {
+	manager := NewManager(nil, nil)
+	const (
+		firstGuildID  = snowflake.ID(42)
+		secondGuildID = snowflake.ID(43)
+		channelID     = snowflake.ID(99)
+	)
+
+	if got := manager.Status(firstGuildID); got.State != RecordingStateIdle {
+		t.Fatalf("idle Status() = %#v", got)
+	}
+	if !manager.Reserve(firstGuildID, channelID) {
+		t.Fatal("Reserve() = false, want true")
+	}
+	if got := manager.Status(firstGuildID); got.State != RecordingStateConnecting || got.VoiceChannelID != channelID {
+		t.Fatalf("connecting Status() = %#v", got)
+	}
+	if got := manager.Status(secondGuildID); got.State != RecordingStateIdle {
+		t.Fatalf("other guild Status() = %#v, want idle", got)
+	}
+
+	recorder := &testRecordingSink{files: []wav.File{{UserID: 1}, {UserID: 2}}}
+	startedAt := time.Now().Add(-90 * time.Second)
+	if !manager.Start(&Session{guildID: firstGuildID, voiceChannelID: channelID, startedAt: startedAt, recorder: recorder}) {
+		t.Fatal("Start() = false, want true")
+	}
+	got := manager.Status(firstGuildID)
+	if got.State != RecordingStateRecording || got.VoiceChannelID != channelID || got.SpeakerCount != 2 {
+		t.Fatalf("recording Status() = %#v", got)
+	}
+	if got.Elapsed < time.Minute || got.Elapsed > 2*time.Minute {
+		t.Fatalf("recording elapsed = %v, want about 90s", got.Elapsed)
+	}
+}
+
 func TestManagerStopPreservesJoinTranscriptChannel(t *testing.T) {
 	const (
 		guildID             = snowflake.ID(42)
@@ -155,6 +190,7 @@ func newTestSession(guildID snowflake.ID, recorder *testRecordingSink) *Session 
 
 type testRecordingSink struct {
 	directory string
+	files     []wav.File
 	closed    bool
 	closeErr  error
 }
@@ -168,4 +204,4 @@ func (s *testRecordingSink) Close() error {
 
 func (s *testRecordingSink) Directory() string { return s.directory }
 
-func (s *testRecordingSink) Files() []wav.File { return nil }
+func (s *testRecordingSink) Files() []wav.File { return s.files }

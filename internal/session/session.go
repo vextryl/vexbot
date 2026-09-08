@@ -126,6 +126,23 @@ type Manager struct {
 	closing      bool
 }
 
+// RecordingState describes a guild's current recording lifecycle state.
+type RecordingState string
+
+const (
+	RecordingStateIdle       RecordingState = "idle"
+	RecordingStateConnecting RecordingState = "connecting"
+	RecordingStateRecording  RecordingState = "recording"
+)
+
+// RecordingStatus is a read-only snapshot of a guild's recording state.
+type RecordingStatus struct {
+	State          RecordingState
+	VoiceChannelID snowflake.ID
+	Elapsed        time.Duration
+	SpeakerCount   int
+}
+
 func NewManager(transcriber whisper.Transcriber, logger *slog.Logger) *Manager {
 	return &Manager{
 		sessions:     make(map[snowflake.ID]*Session),
@@ -166,6 +183,31 @@ func (m *Manager) VoiceChannelID(guildID snowflake.ID) (snowflake.ID, bool) {
 	}
 	channelID, ok := m.starting[guildID]
 	return channelID, ok
+}
+
+// Status returns a read-only snapshot for a guild. A reservation represents a
+// connection in progress; an active session represents a recording in progress.
+func (m *Manager) Status(guildID snowflake.ID) RecordingStatus {
+	m.mu.Lock()
+	active, recording := m.sessions[guildID]
+	connectingChannelID, connecting := m.starting[guildID]
+	m.mu.Unlock()
+
+	if recording {
+		return RecordingStatus{
+			State:          RecordingStateRecording,
+			VoiceChannelID: active.voiceChannelID,
+			Elapsed:        active.Timestamp(),
+			SpeakerCount:   len(active.RecordingFiles()),
+		}
+	}
+	if connecting {
+		return RecordingStatus{
+			State:          RecordingStateConnecting,
+			VoiceChannelID: connectingChannelID,
+		}
+	}
+	return RecordingStatus{State: RecordingStateIdle}
 }
 
 // Start registers a connected recording session. It returns false when the

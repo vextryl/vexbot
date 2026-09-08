@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/cache"
@@ -65,6 +67,69 @@ func TestJoinDefersBeforeStorageAndEditsFailure(t *testing.T) {
 	if _, reserved := manager.VoiceChannelID(3); reserved {
 		t.Fatal("failed preparation left a reservation behind")
 	}
+}
+
+func TestStatusReportsGuildRecordingState(t *testing.T) {
+	manager := session.NewManager(nil, nil)
+	const guildID = snowflake.ID(3)
+	if !manager.Reserve(guildID, 7) {
+		t.Fatal("Reserve() = false, want true")
+	}
+
+	event := testCommandEvent(t, "status")
+	messages := make([]string, 0, 1)
+	event.Respond = func(kind discord.InteractionResponseType, data discord.InteractionResponseData, _ ...rest.RequestOpt) error {
+		if kind != discord.InteractionResponseTypeCreateMessage {
+			t.Fatalf("response type = %v", kind)
+		}
+		messages = append(messages, data.(discord.MessageCreate).Content)
+		return nil
+	}
+	handleStatus(event, manager, nil)
+	if got, want := messages, []string{"Connecting to <#7>..."}; !slices.Equal(got, want) {
+		t.Fatalf("status messages = %v, want %v", got, want)
+	}
+
+	if got := formatStatusElapsed(90*time.Second + 400*time.Millisecond); got != "1m30s" {
+		t.Fatalf("formatStatusElapsed() = %q, want 1m30s", got)
+	}
+}
+
+func TestFormatRecordingStatus(t *testing.T) {
+	tests := map[string]struct {
+		status session.RecordingStatus
+		want   string
+	}{
+		"idle": {
+			status: session.RecordingStatus{State: session.RecordingStateIdle},
+			want:   "No active recording in this server.",
+		},
+		"connecting": {
+			status: session.RecordingStatus{State: session.RecordingStateConnecting, VoiceChannelID: 7},
+			want:   "Connecting to <#7>...",
+		},
+		"recording": {
+			status: session.RecordingStatus{State: session.RecordingStateRecording, VoiceChannelID: 7, Elapsed: 90 * time.Second, SpeakerCount: 4},
+			want:   "Recording in <#7> for 1m30s. Captured audio from 4 speaker(s).",
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := formatRecordingStatus(test.status); got != test.want {
+				t.Fatalf("formatRecordingStatus() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func testCommandEvent(t *testing.T, name string) *events.ApplicationCommandInteractionCreate {
+	t.Helper()
+	var interaction discord.ApplicationCommandInteraction
+	if err := json.Unmarshal([]byte(`{"id":"1","application_id":"2","type":2,"token":"test","guild_id":"3","channel":{"id":"4","type":0},"member":{"user":{"id":"5","username":"test"}},"data":{"id":"6","name":"`+name+`","type":1}}`), &interaction); err != nil {
+		t.Fatal(err)
+	}
+	return &events.ApplicationCommandInteractionCreate{ApplicationCommandInteraction: interaction}
 }
 
 type joinTestCaches struct {
