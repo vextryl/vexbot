@@ -58,7 +58,7 @@ func Write(directory string, metadata Metadata, displayNames map[string]string, 
 
 func formatMetadata(metadata Metadata) string {
 	return fmt.Sprintf(
-		"VexBot transcript\nRecording started: %s\nRecording ended: %s\nVoice channel: %s\nParticipants: %s\n",
+		"Recording started: %s\nRecording ended: %s\nVoice channel: %s\nParticipants: %s\n",
 		formatMetadataTime(metadata.StartedAt),
 		formatMetadataTime(metadata.EndedAt),
 		formatMetadataValue(metadata.VoiceChannel),

@@ -58,8 +58,7 @@ func TestWriteIncludesCompleteMetadataHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
-	want := "VexBot transcript\n" +
-		"Recording started: 2026-09-06 19:30:00 CDT\n" +
+	want := "Recording started: 2026-09-06 19:30:00 CDT\n" +
 		"Recording ended: 2026-09-06 22:45:02 CDT\n" +
 		"Voice channel: D&D Table\n" +
 		"Participants: Alex, Bob, Morgan\n\n" +
@@ -78,7 +77,7 @@ func TestWriteUsesUnknownMetadataWhenDetailsAreUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
-	want := "VexBot transcript\nRecording started: Unknown\nRecording ended: Unknown\nVoice channel: Unknown\nParticipants: Unknown\n\n"
+	want := "Recording started: Unknown\nRecording ended: Unknown\nVoice channel: Unknown\nParticipants: Unknown\n\n"
 	if got := string(contents); got != want {
 		t.Fatalf("transcript = %q, want %q", got, want)
 	}

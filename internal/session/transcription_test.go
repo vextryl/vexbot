@@ -59,7 +59,7 @@ func TestStartTranscriptionReportsOrderedProgressAndCompletion(t *testing.T) {
 		t.Fatalf("LineCount = %d, want 3", result.LineCount)
 	}
 	if contents, err := os.ReadFile(result.TranscriptPath); err != nil ||
-		!strings.HasPrefix(string(contents), "VexBot transcript\n") ||
+		!strings.HasPrefix(string(contents), "Recording started: Unknown\n") ||
 		!strings.HasSuffix(string(contents), "[00:00] Alex: Hello.\n[00:00] Alex: Hello.\n[00:00] Alex: Hello.\n") {
 		t.Fatalf("transcript contents = %q, error = %v", contents, err)
 	}

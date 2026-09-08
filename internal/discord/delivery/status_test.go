@@ -22,7 +22,7 @@ func TestTranscriptStatusCreatesAndUpdatesProgressMessage(t *testing.T) {
 	if messageID != 99 || sender.createdChannelID != 42 {
 		t.Fatalf("Create() = message %v in channel %v", messageID, sender.createdChannelID)
 	}
-	if got, want := sender.created.Content, "Transcription in progress…\n[⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜] 0% ⏳\nPreparing recordings."; got != want {
+	if got, want := sender.created.Content, "Transcription in progress…\n[ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ] 0% ⏳\nPreparing recordings."; got != want {
 		t.Fatalf("created content = %q, want %q", got, want)
 	}
 
@@ -37,7 +37,7 @@ func TestTranscriptStatusCreatesAndUpdatesProgressMessage(t *testing.T) {
 	if sender.updatedChannelID != 42 || sender.updatedMessageID != 99 {
 		t.Fatalf("Update() target = channel %v, message %v", sender.updatedChannelID, sender.updatedMessageID)
 	}
-	if got, want := *sender.updated.Content, "Transcription in progress…\n[🟩 🟩 🟩 🟩 ⬜ ⬜ ⬜ ⬜ ⬜ ⬜] 40% ⏳\nTranscribed 12 of 30 conversation turns."; got != want {
+	if got, want := *sender.updated.Content, "Transcription in progress…\n[ 🟩 🟩 🟩 🟩 ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ] 40% ⏳\nTranscribed 12 of 30 conversation turns."; got != want {
 		t.Fatalf("updated content = %q, want %q", got, want)
 	}
 }
@@ -52,7 +52,7 @@ func TestTranscriptStatusAttachesCompletedTranscript(t *testing.T) {
 	if err := (&TranscriptStatus{sender: sender}).Complete(42, 99, 123, transcriptAttachment(path), transcriptCompletionMessage(123, 3)); err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
-	if got, want := *sender.updated.Content, "Transcription complete.\n[🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩] 100% ✅\n<@123> — here is your final transcript — 3 line(s)."; got != want {
+	if got, want := *sender.updated.Content, "Transcription complete.\n[ 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 ] 100% ✅\n<@123> — here is your final transcript — 3 line(s)."; got != want {
 		t.Fatalf("completion content = %q, want %q", got, want)
 	}
 	if sender.updated.AllowedMentions == nil || len(sender.updated.AllowedMentions.Users) != 1 || sender.updated.AllowedMentions.Users[0] != 123 {
@@ -101,37 +101,37 @@ func TestTranscriptStatusReportsCreateUpdateAndFileFailures(t *testing.T) {
 }
 
 func TestFormatTranscriptStatusNormalizesProgressBar(t *testing.T) {
-	if got, want := formatProgressBar(-1, false), "[⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜]"; got != want {
+	if got, want := formatProgressBar(-1, false), "[ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ⬜ ]"; got != want {
 		t.Fatalf("formatProgressBar(-1, false) = %q, want %q", got, want)
 	}
-	if got, want := formatProgressBar(1000, false), "[🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩]"; got != want {
+	if got, want := formatProgressBar(1000, false), "[ 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 ]"; got != want {
 		t.Fatalf("formatProgressBar(1000, false) = %q, want %q", got, want)
 	}
 }
 
 func TestFormatTranscriptStatusRendersTerminalFailures(t *testing.T) {
-	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "failed"}), "Transcription failed.\n[🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥] ❌\nthe local recordings were kept."; got != want {
+	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "failed"}), "Transcription failed.\n[ 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 ] ❌\nthe local recordings were kept."; got != want {
 		t.Fatalf("failed status = %q, want %q", got, want)
 	}
-	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "delivery_failed", Percent: 100}), "Discord delivery failed.\n[🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥] ❌\nthe local transcript was kept."; got != want {
+	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "delivery_failed", Percent: 100}), "Discord delivery failed.\n[ 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 ] ❌\nthe local transcript was kept."; got != want {
 		t.Fatalf("delivery failure status = %q, want %q", got, want)
 	}
-	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "attachment_too_large", Percent: 100}), "Transcript is too large to upload.\n[🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥] ❌\nthe local transcript was kept."; got != want {
+	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "attachment_too_large", Percent: 100}), "Transcript is too large to upload.\n[ 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 ] ❌\nthe local transcript was kept."; got != want {
 		t.Fatalf("oversized transcript status = %q, want %q", got, want)
 	}
 }
 
 func TestFormatTranscriptStatusRendersTerminalRecipient(t *testing.T) {
-	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "failed", RecipientID: 123}), "Transcription failed.\n[🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥] ❌\n<@123> — the local recordings were kept."; got != want {
+	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "failed", RecipientID: 123}), "Transcription failed.\n[ 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 ] ❌\n<@123> — the local recordings were kept."; got != want {
 		t.Fatalf("recipient status = %q, want %q", got, want)
 	}
-	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "attachment_too_large", RecipientID: 123}), "Transcript is too large to upload.\n[🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥] ❌\n<@123> — the local transcript was kept."; got != want {
+	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "attachment_too_large", RecipientID: 123}), "Transcript is too large to upload.\n[ 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 🟥 ] ❌\n<@123> — the local transcript was kept."; got != want {
 		t.Fatalf("oversized recipient status = %q, want %q", got, want)
 	}
 }
 
 func TestFormatTranscriptStatusRendersUploadIndicator(t *testing.T) {
-	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "complete", Percent: 100}), "Transcription in progress…\n[🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩] 100% ⬆️\nTranscript complete. Uploading…"; got != want {
+	if got, want := FormatTranscriptStatus(TranscriptStatusUpdate{Phase: "complete", Percent: 100}), "Transcription in progress…\n[ 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 🟩 ] 100% ⬆️\nTranscript complete. Uploading…"; got != want {
 		t.Fatalf("uploading status = %q, want %q", got, want)
 	}
 }

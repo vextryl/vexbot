@@ -170,7 +170,7 @@ func formatProgressBar(percent int, failed bool) string {
 		for index := range cells {
 			cells[index] = "🟥"
 		}
-		return "[" + strings.Join(cells, " ") + "]"
+		return "[ " + strings.Join(cells, " ") + " ]"
 	}
 	filled := normalizeProgressPercent(percent) / transcriptProgressBarWidth
 	for index := range cells {
@@ -180,7 +180,7 @@ func formatProgressBar(percent int, failed bool) string {
 		}
 		cells[index] = "⬜"
 	}
-	return "[" + strings.Join(cells, " ") + "]"
+	return "[ " + strings.Join(cells, " ") + " ]"
 }
 
 func normalizeProgressPercent(percent int) int {
