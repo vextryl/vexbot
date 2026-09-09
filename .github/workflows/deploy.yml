@@ -107,7 +107,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker save "vexbot:$IMAGE_TAG" | ssh -i "$HOME/.ssh/vexhub_deploy" -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'docker load'
+          docker image inspect "vexbot:$IMAGE_TAG" \
+            --format 'Source image: {{.Id}} ({{.Size}} bytes)'
+          ssh_options=(
+            -i "$HOME/.ssh/vexhub_deploy"
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o ServerAliveInterval=30
+            -o ServerAliveCountMax=3
+          )
+          started=$SECONDS
+          docker save "vexbot:$IMAGE_TAG" \
+            | dd bs=4M status=progress \
+            | timeout --foreground --signal=TERM --kill-after=30s 20m \
+              ssh "${ssh_options[@]}" "$SSH_USER@$SSH_HOST" \
+                'set -eu; echo "VexHub: beginning Docker image load"; df -h /var/lib/docker; docker load'
+          echo "Image transfer completed in $((SECONDS - started)) seconds."
 
       - name: Replace the VexBot container
         env:
