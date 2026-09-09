@@ -1,0 +1,29 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build the test image
+        run: docker build --target build --tag vexbot:ci .
+
+      - name: Run Go checks
+        run: >-
+          docker run --rm --network none vexbot:ci sh -ec
+          'go test ./... && go vet ./... && test -z "$(gofmt -l main.go internal)"'
+
+      - name: Build the runtime image
+        run: docker build --tag vexbot:ci-runtime .

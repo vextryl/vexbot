@@ -1,0 +1,129 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref (branch, tag, or commit SHA) to deploy
+        required: true
+        default: main
+        type: string
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vexbot-production
+  cancel-in-progress: false
+
+jobs:
+  select-version:
+    name: Select deployable version
+    runs-on: ubuntu-latest
+    outputs:
+      deploy: ${{ steps.version.outputs.deploy }}
+      image_tag: ${{ steps.version.outputs.image_tag }}
+      ref: ${{ steps.version.outputs.ref }}
+    steps:
+      - id: version
+        name: Accept manual deployments and stable releases
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+          MANUAL_REF: ${{ inputs.ref }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -eu
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "image_tag=manual-$RUN_ID" >> "$GITHUB_OUTPUT"
+            echo "ref=$MANUAL_REF" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$RELEASE_PRERELEASE" = true ]; then
+            echo "Skipping prerelease $RELEASE_TAG."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$RELEASE_TAG" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "image_tag=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+            echo "ref=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Skipping non-standard release tag $RELEASE_TAG."
+          echo "deploy=false" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    name: Build and deploy
+    needs: select-version
+    if: needs.select-version.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out selected revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.select-version.outputs.ref }}
+
+      - name: Build the test image
+        run: docker build --target build --tag vexbot:deploy-test .
+
+      - name: Run Go checks
+        run: >-
+          docker run --rm --network none vexbot:deploy-test sh -ec
+          'go test ./... && go vet ./... && test -z "$(gofmt -l main.go internal)"'
+
+      - name: Build the runtime image
+        env:
+          IMAGE_TAG: ${{ needs.select-version.outputs.image_tag }}
+        run: docker build --tag "vexbot:$IMAGE_TAG" .
+
+      - name: Configure deployment SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.VEXHUB_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.VEXHUB_SSH_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -eu
+          install --directory --mode 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/vexhub_deploy"
+          chmod 600 "$HOME/.ssh/vexhub_deploy"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Transfer image to VexHub
+        env:
+          IMAGE_TAG: ${{ needs.select-version.outputs.image_tag }}
+          SSH_HOST: ${{ secrets.VEXHUB_SSH_HOST }}
+          SSH_PORT: ${{ secrets.VEXHUB_SSH_PORT }}
+          SSH_USER: ${{ secrets.VEXHUB_SSH_USER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker save "vexbot:$IMAGE_TAG" | ssh -i "$HOME/.ssh/vexhub_deploy" -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'docker load'
+
+      - name: Replace the VexBot container
+        env:
+          IMAGE_TAG: ${{ needs.select-version.outputs.image_tag }}
+          SSH_HOST: ${{ secrets.VEXHUB_SSH_HOST }}
+          SSH_PORT: ${{ secrets.VEXHUB_SSH_PORT }}
+          SSH_USER: ${{ secrets.VEXHUB_SSH_USER }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i "$HOME/.ssh/vexhub_deploy" -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "docker stop --timeout 60 vexbot 2>/dev/null || true
+             docker rm vexbot 2>/dev/null || true
+             docker run --detach --name vexbot --restart unless-stopped \\
+               --env-file /srv/vexbot/vexbot.env \\
+               --dns 1.1.1.1 --dns 1.0.0.1 \\
+               --volume /srv/vexbot/recordings:/app/recordings \\
+               --volume /srv/vexbot/whisper:/opt/whisper:ro \\
+               vexbot:$IMAGE_TAG"

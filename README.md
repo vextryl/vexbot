@@ -20,12 +20,48 @@ repository root, set the required values, then run:
 go run .
 ```
 
-VexBot registers three guild commands:
+VexBot registers four guild commands:
 
 - `/ping` checks that the bot is responding.
 - `/join` joins the caller's current voice channel and begins recording.
 - `/stop` stops the recording, leaves the channel, and begins local
   transcription when Whisper is configured.
+- `/status` reports whether VexBot is connecting or recording in the server.
+
+## GitHub Actions deployment
+
+The repository includes two GitHub Actions workflows. **Verify** runs Go tests,
+static checks, and Docker builds for every push to `main` and pull request to
+`main`; it never changes VexHub. **Deploy** can be run manually from the
+repository's **Actions** tab for a branch, tag, or commit SHA.
+
+Publishing a stable GitHub Release deploys automatically. Release tags
+`1.0.0` and `v1.0.0` produce the versioned Docker image tag `1.0.0`.
+Prereleases, draft releases, plain tag pushes, and release tags outside the
+`MAJOR.MINOR.PATCH` format do not deploy. A prerelease such as `v1.1.0-rc.1`
+therefore remains available for testing through the manual Deploy workflow.
+
+Deploy builds and tests the selected revision on GitHub's hosted runner, then
+transfers its Docker image to VexHub over SSH. It does not use a container
+registry. VexHub needs Docker only to load and run the completed image.
+
+Before enabling the workflows, add these repository secrets under
+**Settings → Secrets and variables → Actions**:
+
+- `VEXHUB_SSH_HOST`: VexHub's SSH hostname or public IP address.
+- `VEXHUB_SSH_PORT`: its SSH port (currently `25562`).
+- `VEXHUB_SSH_USER`: the Docker-enabled deployment account (currently
+  `vexbot`).
+- `VEXHUB_SSH_PRIVATE_KEY`: the private half of the dedicated deployment key.
+  Its public half must be in `/home/vexbot/.ssh/authorized_keys` on VexHub.
+- `VEXHUB_SSH_KNOWN_HOSTS`: VexHub's verified SSH host-key entry. Generate it
+  from a trusted machine with `ssh-keyscan -p 25562 your-vexhub-host`, then
+  compare its fingerprint with VexHub before storing the result as the secret.
+
+The workflow creates the container with the same `vexbot.env`, DNS servers,
+recordings mount, and Whisper mount used by the Docker guide below. It stops
+the existing `vexbot` container only after the new image has transferred and
+loaded successfully.
 
 ## Docker deployment: step-by-step Linux setup
 
