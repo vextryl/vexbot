@@ -9,7 +9,9 @@ import (
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/disgo/voice"
+	"github.com/disgoorg/snowflake/v2"
 	"github.com/vextryl/vexbot/internal/dave"
 	"github.com/vextryl/vexbot/internal/discord/delivery"
 	"github.com/vextryl/vexbot/internal/discord/member"
@@ -39,7 +41,7 @@ func HandleApplicationCommandInteraction(
 		handleJoin(ctx, event, client, voiceManager, sessions, retentionCount, failures, logger)
 
 	case "stop":
-		handleStop(event, client, sessions, uploadLimit, failures, logger)
+		handleStop(ctx, event, client, sessions, uploadLimit, failures, logger)
 
 	case "status":
 		handleStatus(event, sessions, logger)
@@ -216,7 +218,7 @@ func handleJoin(
 	}()
 }
 
-func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.Client, sessions *session.Manager, uploadLimit int64, failures *dave.DecryptFailureCounter, logger *slog.Logger) {
+func handleStop(ctx context.Context, event *events.ApplicationCommandInteractionCreate, client *bot.Client, sessions *session.Manager, uploadLimit int64, failures *dave.DecryptFailureCounter, logger *slog.Logger) {
 	guildID := event.GuildID()
 	if guildID == nil {
 		_ = event.CreateMessage(discord.MessageCreate{
@@ -237,7 +239,19 @@ func handleStop(event *events.ApplicationCommandInteractionCreate, client *bot.C
 		})
 		return
 	}
-	stoppedRecording.DisplayNames = member.SnapshotDisplayNames(client.Caches, *guildID, stoppedRecording.Files)
+	displayNames, lookupFailures := member.ResolveDisplayNames(ctx, client.Caches, func(ctx context.Context, guildID, userID snowflake.ID) (*discord.Member, error) {
+		return client.Rest.GetMember(guildID, userID, rest.WithCtx(ctx))
+	}, *guildID, stoppedRecording.Files)
+	stoppedRecording.DisplayNames = displayNames
+	for _, failure := range lookupFailures {
+		if logger != nil {
+			logger.Warn("resolving recording participant",
+				"err", failure.Err,
+				slog.String("guild_id", guildID.String()),
+				slog.String("user_id", failure.UserID.String()),
+			)
+		}
+	}
 	if channel, ok := client.Caches.Channel(stoppedRecording.VoiceChannelID); ok {
 		stoppedRecording.TranscriptMetadata.VoiceChannel = channel.Name()
 	}
